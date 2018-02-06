@@ -1,0 +1,19 @@
+* Dependencies
+- Suppose we have two statements that read and/or write a variable, $S_1$ and $S_2$.
+- Stmts not necessarily next to each other
+- If $S_1$ reads var then $S_2$ reads var, /input dependency/ (can reorder and otherwise ignore)
+- If $S_1$ writes then $S_2$ reads, /true dependency/
+- Read then write is /anti-dependency/ (arrow with line on it)
+- Write after write is /output dependency/ (line with circle, can't drop because critical-section shaped things)
+- Dependency arrows must flow down in program order
+- But they can curve up because of a loop --- these are loop-carried dependencies
+- The other sort are loop-independent
+* FLAME stuffs
+- The PME tells you all the operations you need to do to compute something
+- To get a loop invariant, cross off parts of the PME to do later and thus get computed state (full, partial, none)
+- You can draw dependency arrows between quadrants by looking at fusion patterns
+- All-computed and all-uncomputed is bad, because it means you don't have any way to make progress
+- Loop invariants tell you the state of things at the edges of iterations
+- If there's an arrow between two computed things (or, more generally, between things of the same state), that needs to be loop-independent
+  - If not, you're declaring computation will/won't happen but between iterations it needs to have happened
+- Arrows that cross state must be loop-carried
