@@ -22,18 +22,18 @@ split_([H|T], A, B, VarA, VarB) :-
 
 split(List, A, B) :- split_(List, [], [], A, B).
 
-productive_task(fn(_, _)).
+productive_task(fn(_, _, _)).
 productive_task(op(_, _)).
 
 task(noop(_, _)).
 task(X) :- productive_task(X).
 
 task_split(noop(X, Y), In, Out) :- X = In, Y = Out.
-task_split(fn(X, Y), In, Out) :- X = In, Y = Out.
+task_split(fn(X, Y, _), In, Out) :- X = In, Y = Out.
 task_split(op(X, Y), In, Out) :- X = In, Y = Out.
 
 task_outputs(noop(_, X), Y) :- X = Y.
-task_outputs(fn(_, X), Y) :- X = Y.
+task_outputs(fn(_, X, _), Y) :- X = Y.
 task_outputs(op(_, X), Y) :- X = Y.
 
 make_region(Id, Tasks, Past, Future, Reg) :-
@@ -47,7 +47,7 @@ has_op(List) :-
     exists_one(=(op(_, _)), List).
 
 has_fn(List) :-
-    exists_one(=(fn(_, _)), List).
+    exists_one(=(fn(_, _, _)), List).
 
 has_op_in_past(Region) :- has_op(Region.past).
 has_op_in_future(Region) :- has_op(Region.future).
@@ -135,14 +135,14 @@ sylvester :-
                 ),
              make_region(bl, [op([in(bl)], [out(bl)])],
                          PBl, FBl, Bl),
-             make_region(tl, [fn([in(tl), out(bl)], [during(tl, 0)]),
+             make_region(tl, [fn([in(tl), out(bl)], [during(tl, 0)], sub),
                               op([during(tl, 0)], [out(tl)])],
                          PTl, FTl, Tl),
-             make_region(br, [fn([in(br), out(bl)], [during(br, 0)]),
+             make_region(br, [fn([in(br), out(bl)], [during(br, 0)], sub),
                               op([during(br, 0)], [out(br)])],
                          PBr, FBr, Br),
-             make_region(tr, [fn([BrInOp, out(br)], [during(tr, BrOutN)]),
-                              fn([TlInOp, out(tl)], [during(tr, TlOutN)]),
+             make_region(tr, [fn([BrInOp, out(br)], [during(tr, BrOutN)], sub),
+                              fn([TlInOp, out(tl)], [during(tr, TlOutN)], sub),
                               op([during(tr, 1)], [out(tr)])],
                          PTr, FTr, Tr),
              loop_invariant([Bl, Tl, Br, Tr]),
@@ -159,9 +159,9 @@ cholesky :-
     findall([PTl, FTl, PBl, FBl, PBr, FBr],
             (make_region(tl, [op([in(tl)], [out(tl)])],
                          PTl, FTl, Tl),
-             make_region(bl, [fn([in(bl), out(tl)], [out(bl)])],
+             make_region(bl, [fn([in(bl), out(tl)], [out(bl)], times)],
                          PBl, FBl, Bl),
-             make_region(br, [fn([in(br), out(bl)], [during(br, 0)]),
+             make_region(br, [fn([in(br), out(bl)], [during(br, 0)], times),
                               op([during(br, 0)], [out(br)])],
                          PBr, FBr, Br),
              loop_invariant([Tl, Bl, Br])),
@@ -174,8 +174,8 @@ inverse :-
     findall([PTl, FTl, PBl, FBl, PBr, FBr],
             (make_region(tl, [op([in(tl)], [out(tl)])],
                          PTl, FTl, Tl),
-             make_region(bl, [fn([during(bl, 0), out(tl)], [during(bl, 0)]),
-                              fn([during(bl, 0), in(br)], [during(bl, 0)])],
+             make_region(bl, [fn([during(bl, 0), out(tl)], [during(bl, 0)], times),
+                              fn([during(bl, 0), in(br)], [during(bl, 0)], times)],
                          PBl, FBl, Bl),
              make_region(br, [op([in(br)], [out(br)])],
                          PBr, FBr, Br),
