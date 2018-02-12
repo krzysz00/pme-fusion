@@ -46,6 +46,9 @@ is_region(region{id:_, tasks:Tasks, past:Past, future:Future}) :-
 has_op(List) :-
     exists_one(=(op(_, _)), List).
 
+has_fn(List) :-
+    exists_one(=(fn(_, _)), List).
+
 has_op_in_past(Region) :- has_op(Region.past).
 has_op_in_future(Region) :- has_op(Region.future).
 
@@ -107,12 +110,29 @@ loop_invariant(Regions) :-
     regions_make_progress(Regions),
     dependencies_preserved(Regions).
 
-print_sylvester(Args) :-
+% Searching for Sylvester invariants yields duplicates
+% where there are algorithms that are identical
+% up to the order the subtractions in the top right are performed.
+% Find things that could not be such duplicates,
+% so we can toss everything but them on search pt. 2
+sylvester_tr_non_duplicate(_, _, true) :- !.
+sylvester_tr_non_duplicate(Past, Future, false) :-
+    has_fn(Past),
+    has_fn(Future).
+
+print_four(Args) :-
     format("Top left past: ~w~nTop left future: ~w~nTop right past: ~w~nTop right future: ~w~nBottom left past: ~w~nBottom left future: ~w~nBottom right past: ~w~nBottom right future: ~w~n~n", Args).
 
 sylvester :-
     findall([PTl, FTl, PTr, FTr, PBl, FBl, PBr, FBr],
-            (((K = 0, L = 1, M = 1, N = 2)),%; (M = 0, N = 1, K = 1, L = 2)),
+            ((
+                    (BrInOp = in(tr), BrOutN = 0,
+                     TlInOp = during(tr, 0), TlOutN = 1,
+                     Initial = true);
+                    (BrInOp = during(tr, 0), BrOutN = 1,
+                     TlInOp = in(tr), TlOutN = 0,
+                     Initial = false)
+                ),
              make_region(bl, [op([in(bl)], [out(bl)])],
                          PBl, FBl, Bl),
              make_region(tl, [fn([in(tl), out(bl)], [during(tl, 0)]),
@@ -121,20 +141,18 @@ sylvester :-
              make_region(br, [fn([in(br), out(bl)], [during(br, 0)]),
                               op([during(br, 0)], [out(br)])],
                          PBr, FBr, Br),
-             make_region(tr, [fn([during(tr, K), out(br)], [during(tr, L)]),
-                              fn([during(tr, M), out(tl)], [during(tr, N)]),
-                              op([during(tr, 2)], [out(tr)])],
+             make_region(tr, [fn([BrInOp, out(br)], [during(tr, BrOutN)]),
+                              fn([TlInOp, out(tl)], [during(tr, TlOutN)]),
+                              op([during(tr, 1)], [out(tr)])],
                          PTr, FTr, Tr),
-             loop_invariant([Bl, Tl, Br, Tr])),
+             loop_invariant([Bl, Tl, Br, Tr]),
+             sylvester_tr_non_duplicate(PTr, FTr, Initial)),
             Results),
     length(Results, NumResults),
-    sort(Results, DedupResults),
-    length(DedupResults, NumInvariants),
-    maplist(print_sylvester, DedupResults),
-    format("~d results~n", [NumResults]),
-    format("~d invariants~n", [NumInvariants]).
+    maplist(print_four, Results),
+    format("~d invariants~n", [NumResults]).
 
-print_cholesky(Args) :-
+print_three(Args) :-
     format("Top left past: ~w~nTop left future: ~w~nBottom left past: ~w~nBottom left future: ~w~nBottom right past: ~w~nBottom right future: ~w~n~n", Args).
 
 cholesky :-
@@ -148,7 +166,22 @@ cholesky :-
                          PBr, FBr, Br),
              loop_invariant([Tl, Bl, Br])),
             Results),
-    maplist(print_cholesky, Results),
+    maplist(print_three, Results),
+    length(Results, NumResults),
+    format("~d invariants~n", [NumResults]).
+
+inverse :-
+    findall([PTl, FTl, PBl, FBl, PBr, FBr],
+            (make_region(tl, [op([in(tl)], [out(tl)])],
+                         PTl, FTl, Tl),
+             make_region(bl, [fn([during(bl, 0), out(tl)], [during(bl, 0)]),
+                              fn([during(bl, 0), in(br)], [during(bl, 0)])],
+                         PBl, FBl, Bl),
+             make_region(br, [op([in(br)], [out(br)])],
+                         PBr, FBr, Br),
+             loop_invariant([Tl, Bl, Br])),
+            Results),
+    maplist(print_three, Results),
     length(Results, NumResults),
     format("~d invariants~n", [NumResults]).
 
