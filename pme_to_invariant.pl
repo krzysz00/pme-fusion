@@ -22,18 +22,22 @@ split_([H|T], A, B, VarA, VarB) :-
 
 split(List, A, B) :- split_(List, [], [], A, B).
 
-productive_task(fn(_, _, _)).
+operand_region(in(X), Y) :- X = Y.
+operand_region(during(X, _), Y) :- X = Y.
+operand_region(out(X), Y) :- X = Y.
+
+productive_task(fn(_, _)).
 productive_task(op(_, _)).
 
 task(noop(_, _)).
 task(X) :- productive_task(X).
 
 task_split(noop(X, Y), In, Out) :- X = In, Y = Out.
-task_split(fn(X, Y, _), In, Out) :- X = In, Y = Out.
+task_split(fn(X, Y), In, Out) :- X = In, Y = Out.
 task_split(op(X, Y), In, Out) :- X = In, Y = Out.
 
 task_outputs(noop(_, X), Y) :- X = Y.
-task_outputs(fn(_, X, _), Y) :- X = Y.
+task_outputs(fn(_, X), Y) :- X = Y.
 task_outputs(op(_, X), Y) :- X = Y.
 
 make_region(Id, Tasks, Past, Future, Reg) :-
@@ -47,7 +51,12 @@ has_op(List) :-
     exists_one(=(op(_, _)), List).
 
 has_fn(List) :-
-    exists_one(=(fn(_, _, _)), List).
+    exists_one(=(fn(_, _)), List).
+
+region_with_id(_, [], _) :- fail.
+region_with_id(Id, [R|Tail], Region) :-
+    (R.id == Id, !, R = Region);
+    region_with_id(Id, Tail, Region).
 
 has_op_in_past(Region) :- has_op(Region.past).
 has_op_in_future(Region) :- has_op(Region.future).
@@ -86,39 +95,73 @@ collect_field_([Region|T], Field, Accum, Ret) :-
 collect_field(Regions, Field, Ret) :-
     collect_field_(Regions, Field, [], Ret).
 
-partition_task_ops([], AccumIn, AccumOut, Inputs, Outputs) :-
+partition_task_operands([], AccumIn, AccumOut, Inputs, Outputs) :-
     Inputs = AccumIn, Outputs = AccumOut, !.
-partition_task_ops([Task|Tasks], AccumIn, AccumOut, Inputs, Outputs) :-
+partition_task_operands([Task|Tasks], AccumIn, AccumOut, Inputs, Outputs) :-
     task_split(Task, TaskIn, TaskOut),
     append(TaskIn, AccumIn, NewAccumIn),
     append(TaskOut, AccumOut, NewAccumOut),
-    partition_task_ops(Tasks, NewAccumIn, NewAccumOut, Inputs, Outputs).
+    partition_task_operands(Tasks, NewAccumIn, NewAccumOut, Inputs, Outputs).
 
-partition_task_ops(Tasks, Inputs, Outputs) :-
-    partition_task_ops(Tasks, [], [], Inputs, Outputs).
+partition_task_operands(Tasks, Inputs, Outputs) :-
+    partition_task_operands(Tasks, [], [], Inputs, Outputs).
 
-dependencies_preserved(Regions) :-
+distinct_regions(Op1, Op2) :-
+    operand_region(Op1, Reg1),
+    operand_region(Op2, Reg2),
+    Reg1 \== Reg2.
+
+fusion_preserves_dependencies(CurrentPastIns, CurrentPastOuts, PastLoop) :-
+    regions_to_operands(PastLoop, _, _, PastFutureIns, PastFutureOuts),
+    maplist2(distinct_regions, CurrentPastOuts, PastFutureIns),
+    maplist2(distinct_regions, CurrentPastIns, PastFutureOuts).
+
+regions_to_operands(Regions, PastIns, PastOuts, FutureIns, FutureOuts) :-
     collect_field(Regions, past, Pasts),
     collect_field(Regions, future, Futures),
-    partition_task_ops(Pasts, PastIns, PastOuts),
-    partition_task_ops(Futures, FutureIns, FutureOuts),
-    maplist2(not_after, PastOuts, FutureIns),
-    maplist2(before, PastIns, FutureOuts).
+    partition_task_operands(Pasts, PastIns, PastOuts),
+    partition_task_operands(Futures, FutureIns, FutureOuts).
 
-loop_invariant(Regions) :-
+dependencies_preserved(Regions, PastLoops) :-
+    regions_to_operands(Regions, PastIns, PastOuts, FutureIns, FutureOuts),
+    maplist2(not_after, PastOuts, FutureIns),
+    maplist2(before, PastIns, FutureOuts),
+    maplist(fusion_preserves_dependencies(PastIns, PastOuts), PastLoops).
+
+no_overwrite_conflict_(CurrentRegions, PastRegion) :-
+    region_with_id(PastRegion.id, CurrentRegions, CurrentRegion),
+    ((PastRegion.future == [], !); (CurrentRegion.past == [], !)).
+
+no_overwrite_conflict(CurrentRegions, PastRegions) :-
+    maplist(no_overwrite_conflict_(CurrentRegions), PastRegions).
+
+loop_invariant(Regions, PastLoops) :-
     maplist(is_region, Regions),
     regions_make_progress(Regions),
-    dependencies_preserved(Regions).
+    maplist(no_overwrite_conflict(Regions), PastLoops),
+    dependencies_preserved(Regions, PastLoops).
+
+loop_invariant(Regions) :-
+    loop_invariant(Regions, []).
+
+fused_invariants(_, []).
+fused_invariants(Past, [Now|Tail]) :-
+    loop_invariant(Now, Past),
+    fused_invariants([Now|Past], Tail).
+
+fused_invariants(List) :-
+    fused_invariants([], List).
 
 % Searching for Sylvester invariants yields duplicates
 % where there are algorithms that are identical
 % up to the order the subtractions in the top right are performed.
 % Find things that could not be such duplicates,
 % so we can toss everything but them on search pt. 2
-sylvester_tr_non_duplicate(_, _, true) :- !.
-sylvester_tr_non_duplicate(Past, Future, false) :-
+region_non_duplicate(_, _, true) :- !.
+region_non_duplicate(Past, Future, false) :-
     has_fn(Past),
     has_fn(Future).
+
 
 print_four(Args) :-
     format("Top left past: ~w~nTop left future: ~w~nTop right past: ~w~nTop right future: ~w~nBottom left past: ~w~nBottom left future: ~w~nBottom right past: ~w~nBottom right future: ~w~n~n", Args).
@@ -135,18 +178,18 @@ sylvester :-
                 ),
              make_region(bl, [op([in(bl)], [out(bl)])],
                          PBl, FBl, Bl),
-             make_region(tl, [fn([in(tl), out(bl)], [during(tl, 0)], sub),
+             make_region(tl, [fn([in(tl), out(bl)], [during(tl, 0)]),
                               op([during(tl, 0)], [out(tl)])],
                          PTl, FTl, Tl),
-             make_region(br, [fn([in(br), out(bl)], [during(br, 0)], sub),
+             make_region(br, [fn([in(br), out(bl)], [during(br, 0)]),
                               op([during(br, 0)], [out(br)])],
                          PBr, FBr, Br),
-             make_region(tr, [fn([BrInOp, out(br)], [during(tr, BrOutN)], sub),
-                              fn([TlInOp, out(tl)], [during(tr, TlOutN)], sub),
+             make_region(tr, [fn([BrInOp, out(br)], [during(tr, BrOutN)]),
+                              fn([TlInOp, out(tl)], [during(tr, TlOutN)]),
                               op([during(tr, 1)], [out(tr)])],
                          PTr, FTr, Tr),
              loop_invariant([Bl, Tl, Br, Tr]),
-             sylvester_tr_non_duplicate(PTr, FTr, Initial)),
+             region_non_duplicate(PTr, FTr, Initial)),
             Results),
     length(Results, NumResults),
     maplist(print_four, Results),
@@ -159,9 +202,9 @@ cholesky :-
     findall([PTl, FTl, PBl, FBl, PBr, FBr],
             (make_region(tl, [op([in(tl)], [out(tl)])],
                          PTl, FTl, Tl),
-             make_region(bl, [fn([in(bl), out(tl)], [out(bl)], times)],
+             make_region(bl, [fn([in(bl), out(tl)], [out(bl)])],
                          PBl, FBl, Bl),
-             make_region(br, [fn([in(br), out(bl)], [during(br, 0)], times),
+             make_region(br, [fn([in(br), out(bl)], [during(br, 0)]),
                               op([during(br, 0)], [out(br)])],
                          PBr, FBr, Br),
              loop_invariant([Tl, Bl, Br])),
@@ -174,14 +217,44 @@ inverse :-
     findall([PTl, FTl, PBl, FBl, PBr, FBr],
             (make_region(tl, [op([in(tl)], [out(tl)])],
                          PTl, FTl, Tl),
-             make_region(bl, [fn([during(bl, 0), out(tl)], [during(bl, 0)], times),
-                              fn([during(bl, 0), in(br)], [during(bl, 0)], times)],
+             make_region(bl, [fn([during(bl, 0), out(tl)], [during(bl, 0)]),
+                              fn([during(bl, 0), in(br)], [during(bl, 0)])],
                          PBl, FBl, Bl),
              make_region(br, [op([in(br)], [out(br)])],
                          PBr, FBr, Br),
              loop_invariant([Tl, Bl, Br])),
             Results),
     maplist(print_three, Results),
+    length(Results, NumResults),
+    format("~d invariants~n", [NumResults]).
+
+print_three_twice(Result) :-
+    length(ResultA, 6),
+    length(ResultB, 6),
+    append(ResultA, ResultB, Result),
+    print_three(ResultA),
+    print_three(ResultB).
+
+fused_loops() :-
+    findall([PTlChol, FTlChol, PBlChol, FBlChol, PBrChol, FBrChol,
+             PTlInv, FTlInv, PBlInv, FBlInv, PBrInv, FBrInv],
+            (make_region(tl, [op([in(tl)], [out(tl)])],
+                         PTlChol, FTlChol, TlChol),
+             make_region(bl, [fn([in(bl), out(tl)], [out(bl)])],
+                         PBlChol, FBlChol, BlChol),
+             make_region(br, [fn([in(br), out(bl)], [during(br, 0)]),
+                              op([during(br, 0)], [out(br)])],
+                         PBrChol, FBrChol, BrChol),
+             make_region(tl, [op([in(tl)], [out(tl)])],
+                         PTlInv, FTlInv, TlInv),
+             make_region(bl, [fn([during(bl, 0), out(tl)], [during(bl, 0)]),
+                              fn([during(bl, 0), in(br)], [during(bl, 0)])],
+                         PBlInv, FBlInv, BlInv),
+             make_region(br, [op([in(br)], [out(br)])],
+                         PBrInv, FBrInv, BrInv),
+             fused_invariants([[TlChol, BlChol, BrChol], [TlInv, BlInv, BrInv]])),
+            Results),
+    maplist(print_three_twice, Results),
     length(Results, NumResults),
     format("~d invariants~n", [NumResults]).
 
