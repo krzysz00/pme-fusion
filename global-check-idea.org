@@ -1,0 +1,3 @@
+- First, we know a series of loops is stomp-free if we see computed\*, *, uncomputed\* for all regions
+- The position of the last non-"uncomputed" is the last writing loop
+- TODO globalize the write requirements
