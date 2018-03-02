@@ -112,6 +112,8 @@ computable_order(Region, LastComputeds, FirstUncomputeds) :-
     maplist(is_computed, Computed),
     maplist(is_uncomputed, Uncomputed),
     is_region(Any),
+    % We already did this case with that Computed being the Any
+    \+ (is_uncomputed(Any), Computed \== []),
 
     (Id = Any.id),
     get_assoc(Id, LastComputeds, LastComputedConstraint),
