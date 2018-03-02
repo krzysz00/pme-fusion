@@ -1,5 +1,8 @@
 #!/usr/bin/env swipl
 
+:- use_module(library(assoc)).
+:- use_module(library(clpfd)).
+
 :- initialization(main, main).
 
 meta_predicate exists(1, +, -), exists_one(1, +),
@@ -22,6 +25,14 @@ split_([H|T], A, B, VarA, VarB) :-
 
 split(List, A, B) :- split_(List, [], [], A, B).
 
+maplist2(Pred, L1, L2) :-
+    maplist2_(L1, L2, Pred).
+
+maplist2_([], _, _).
+maplist2_([H|T], L2, Pred) :-
+    maplist(call(Pred, H), L2),
+    maplist2_(T, L2, Pred).
+
 operand_region(in(X), Y) :- X = Y.
 operand_region(during(X, _), Y) :- X = Y.
 operand_region(out(X), Y) :- X = Y.
@@ -40,6 +51,12 @@ task_outputs(noop(_, X), Y) :- X = Y.
 task_outputs(fn(_, X), Y) :- X = Y.
 task_outputs(op(_, X), Y) :- X = Y.
 
+has_op(List) :-
+    exists_one(=(op(_, _)), List).
+
+has_fn(List) :-
+    exists_one(=(fn(_, _)), List).
+
 make_region(Id, Tasks, Past, Future, Reg) :-
     maplist(task, Tasks),
     Reg = region{id:Id, tasks:Tasks, past:Past, future:Future}.
@@ -47,11 +64,125 @@ make_region(Id, Tasks, Past, Future, Reg) :-
 is_region(region{id:_, tasks:Tasks, past:Past, future:Future}) :-
     split(Tasks, Past, Future).
 
-has_op(List) :-
-    exists_one(=(op(_, _)), List).
+is_computed(Region) :-
+    (Region.past = Region.tasks),
+    (Region.future = []),
+    !.
 
-has_fn(List) :-
-    exists_one(=(fn(_, _)), List).
+is_uncomputed(Region) :-
+    (Region.past = []),
+    (Region.future = Region.tasks),
+    !.
+
+get_assoc_default(Key, Assoc, Value, Default) :-
+    (get_assoc(Key, Assoc, Value), !);
+    (Value = Default, !).
+
+transpose_invariants_([], Accum, Out) :- Out = Accum.
+transpose_invariants_([Region|Future], Accum, Out) :-
+    Id = Region.id,
+    get_assoc_default(Id, Accum, Past, []),
+    put_assoc(Id, Accum, [Region|Past], NewAccum),
+    transpose_invariants_(Future, NewAccum, Out).
+
+transpose_invariants([], Regions, Out) :-
+    map_assoc(reverse, Regions, Out), !.
+transpose_invariants([Invariant|Future], Regions, Out) :-
+    transpose_invariants_(Invariant, Regions, NewRegions), !,
+    transpose_invariants(Future, NewRegions, Out).
+
+transpose_invariants(Invariants, Regions) :-
+    empty_assoc(Accumulator),
+    transpose_invariants(Invariants, Accumulator, Regions).
+
+to_region_length_var(Region, Out) :-
+    length(Region, Max),
+    Out in -1..Max, !.
+
+to_region_length_vars(Regions, Out) :-
+    map_assoc(to_region_length_var, Regions, Out), !.
+
+last_computed_delta(AnyRegion, Delta) :-
+    is_computed(AnyRegion) -> (Delta = 0); (Delta = -1).
+first_uncomputed_delta(AnyRegion, Delta) :-
+    is_uncomputed(AnyRegion) -> (Delta = -1); (Delta = 0).
+
+computable_order(Region, LastComputeds, FirstUncomputeds) :-
+    append(Computed, [Any|Uncomputed], Region),
+    maplist(is_computed, Computed),
+    maplist(is_uncomputed, Uncomputed),
+    is_region(Any),
+
+    (Id = Any.id),
+    get_assoc(Id, LastComputeds, LastComputedConstraint),
+    length(Computed, LenComputed),
+    last_computed_delta(Any, LastComputedDelta),
+    LastComputed is LenComputed + LastComputedDelta,
+    LastComputedConstraint #= LastComputed,
+
+    get_assoc(Id, FirstUncomputeds, FirstUncomputedConstraint),
+    length(Uncomputed, LenUncomputed),
+    length(Region, LenRegion),
+    first_uncomputed_delta(Any, FirstUncomputedDelta),
+    FirstUncomputed is LenRegion - LenUncomputed + FirstUncomputedDelta,
+    FirstUncomputedConstraint #= FirstUncomputed.
+
+partition_task_operands([], AccumIn, AccumOut, Inputs, Outputs) :-
+    Inputs = AccumIn, Outputs = AccumOut, !.
+partition_task_operands([Task|Tasks], AccumIn, AccumOut, Inputs, Outputs) :-
+    task_split(Task, TaskIn, TaskOut),
+    append(TaskIn, AccumIn, NewAccumIn),
+    append(TaskOut, AccumOut, NewAccumOut),
+    partition_task_operands(Tasks, NewAccumIn, NewAccumOut, Inputs, Outputs).
+
+partition_task_operands(Tasks, Inputs, Outputs) :-
+    partition_task_operands(Tasks, [], [], Inputs, Outputs).
+
+collect_field_([], _, Accum, Ret) :- Ret = Accum, !.
+collect_field_([Region|T], Field, Accum, Ret) :-
+    append(Region.get(Field), Accum, NewAccum),
+    collect_field_(T, Field, NewAccum, Ret).
+
+collect_field(Regions, Field, Ret) :-
+    collect_field_(Regions, Field, [], Ret).
+
+regions_to_operands(Regions, PastIns, PastOuts, FutureIns, FutureOuts) :-
+    collect_field(Regions, past, Pasts),
+    collect_field(Regions, future, Futures),
+    partition_task_operands(Pasts, PastIns, PastOuts),
+    partition_task_operands(Futures, FutureIns, FutureOuts).
+
+
+constrain_from_past_input(LoopNo, LastComputeds, Op) :-
+    operand_region(Op, Region),
+    get_assoc(Region, LastComputeds, Constraint),
+    Constraint #>= LoopNo - 1.
+
+constrain_from_future_input(LoopNo, FirstUncomputeds, Op) :-
+    operand_region(Op, Region),
+    get_assoc(Region, FirstUncomputeds, Constraint),
+    Constraint #=< LoopNo + 1.
+
+fusion_dependency_check(_, [], _, _).
+fusion_dependency_check(N, [Region|Future], LastComputeds, FirstUncomputeds) :-
+    partition_task_operands(Region.past, PastIns, _),
+    partition_task_operands(Region.future, FutureIns, _),
+    maplist(constrain_from_past_input(N, LastComputeds), PastIns),
+    maplist(constrain_from_future_input(N, FirstUncomputeds), FutureIns),
+    NewN is N + 1,
+    fusion_dependency_check(NewN, Future, LastComputeds, FirstUncomputeds).
+fusion_dependency_check(Region, LastComputeds, FirstUncomputeds) :-
+    fusion_dependency_check(0, Region, LastComputeds, FirstUncomputeds).
+
+fusable_region(LastComputeds, FirstUncomputeds, Region) :-
+    computable_order(Region, LastComputeds, FirstUncomputeds),
+    fusion_dependency_check(Region, LastComputeds, FirstUncomputeds).
+
+fusable(Regions) :-
+    to_region_length_vars(Regions, LastComputeds),
+    to_region_length_vars(Regions, FirstUncomputeds),
+    map_assoc(fusable_region(LastComputeds, FirstUncomputeds), Regions).
+
 
 region_with_id(_, [], _) :- fail.
 region_with_id(Id, [R|Tail], Region) :-
@@ -79,78 +210,22 @@ not_after(X, X) :- !.
 not_after(during(X, M), during(X, N)) :- M is N, !.
 not_after(X, Y) :- before(X, Y).
 
-maplist2(Pred, L1, L2) :-
-    maplist2_(L1, L2, Pred).
-
-maplist2_([], _, _).
-maplist2_([H|T], L2, Pred) :-
-    maplist(call(Pred, H), L2),
-    maplist2_(T, L2, Pred).
-
-collect_field_([], _, Accum, Ret) :- Ret = Accum, !.
-collect_field_([Region|T], Field, Accum, Ret) :-
-    append(Region.get(Field), Accum, NewAccum),
-    collect_field_(T, Field, NewAccum, Ret).
-
-collect_field(Regions, Field, Ret) :-
-    collect_field_(Regions, Field, [], Ret).
-
-partition_task_operands([], AccumIn, AccumOut, Inputs, Outputs) :-
-    Inputs = AccumIn, Outputs = AccumOut, !.
-partition_task_operands([Task|Tasks], AccumIn, AccumOut, Inputs, Outputs) :-
-    task_split(Task, TaskIn, TaskOut),
-    append(TaskIn, AccumIn, NewAccumIn),
-    append(TaskOut, AccumOut, NewAccumOut),
-    partition_task_operands(Tasks, NewAccumIn, NewAccumOut, Inputs, Outputs).
-
-partition_task_operands(Tasks, Inputs, Outputs) :-
-    partition_task_operands(Tasks, [], [], Inputs, Outputs).
-
-distinct_regions(Op1, Op2) :-
-    operand_region(Op1, Reg1),
-    operand_region(Op2, Reg2),
-    Reg1 \== Reg2.
-
-fusion_preserves_dependencies(CurrentPastIns, CurrentPastOuts, PastLoop) :-
-    regions_to_operands(PastLoop, _, _, PastFutureIns, PastFutureOuts),
-    maplist2(distinct_regions, CurrentPastOuts, PastFutureIns),
-    maplist2(distinct_regions, CurrentPastIns, PastFutureOuts).
-
-regions_to_operands(Regions, PastIns, PastOuts, FutureIns, FutureOuts) :-
-    collect_field(Regions, past, Pasts),
-    collect_field(Regions, future, Futures),
-    partition_task_operands(Pasts, PastIns, PastOuts),
-    partition_task_operands(Futures, FutureIns, FutureOuts).
-
-dependencies_preserved(Regions, PastLoops) :-
+dependencies_preserved(Regions) :-
     regions_to_operands(Regions, PastIns, PastOuts, FutureIns, FutureOuts),
     maplist2(not_after, PastOuts, FutureIns),
-    maplist2(before, PastIns, FutureOuts),
-    maplist(fusion_preserves_dependencies(PastIns, PastOuts), PastLoops).
+    maplist2(before, PastIns, FutureOuts).
 
-no_overwrite_conflict_(CurrentRegions, PastRegion) :-
-    region_with_id(PastRegion.id, CurrentRegions, CurrentRegion),
-    ((PastRegion.future == [], !); (CurrentRegion.past == [], !)).
-
-no_overwrite_conflict(CurrentRegions, PastRegions) :-
-    maplist(no_overwrite_conflict_(CurrentRegions), PastRegions).
-
-loop_invariant(Regions, PastLoops) :-
-    maplist(is_region, Regions),
+valid_loop_invariant(Regions) :-
     regions_make_progress(Regions),
-    maplist(no_overwrite_conflict(Regions), PastLoops),
-    dependencies_preserved(Regions, PastLoops).
+    dependencies_preserved(Regions).
 
-loop_invariant(Regions) :-
-    loop_invariant(Regions, []).
+fused_invariants(Invariants) :-
+    transpose_invariants(Invariants, Regions),
+    fusable(Regions),
+    maplist(valid_loop_invariant, Invariants).
 
-fused_invariants(_, []).
-fused_invariants(Past, [Now|Tail]) :-
-    loop_invariant(Now, Past),
-    fused_invariants([Now|Past], Tail).
-
-fused_invariants(List) :-
-    fused_invariants([], List).
+loop_invariant(Invariant) :-
+    fused_invariants([Invariant]).
 
 % Searching for Sylvester invariants yields duplicates
 % where there are algorithms that are identical
@@ -328,4 +403,4 @@ three_fused_loops() :-
     length(Results, NumResults),
     format("~d invariants~n", [NumResults]).
 
-main(_) :- three_fused_loops.
+main :- three_fused_loops.
