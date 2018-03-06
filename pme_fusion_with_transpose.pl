@@ -5,7 +5,7 @@
 
 :- initialization(main, main).
 
-meta_predicate exists(1, +, -), exists_one(1, +),
+meta_predicate exists(1, +, -), exists_one(1, +), exists_one(2, +, +),
                maplist2(2, +, +), maplist2_(2, +, +).
 
 exists(_, [], _) :- fail.
@@ -17,6 +17,11 @@ exists_one(_, []) :- fail.
 exists_one(P, [H|T]) :-
     (call(P, H), !);
     exists_one(P, T).
+
+exists_one(_, [], _) :- fail.
+exists_one(P, [H|T], L2) :-
+    (exists_one(call(P, H), L2), !);
+    exists_one(P, T, L2).
 
 split_([], A, B, VarA, VarB) :- reverse(A, VarA), reverse(B, VarB).
 split_([H|T], A, B, VarA, VarB) :-
@@ -33,8 +38,13 @@ maplist2_([H|T], L2, Pred) :-
     maplist(call(Pred, H), L2),
     maplist2_(T, L2, Pred).
 
+operand_region(any(Ops), Y) :-
+    maplist(operand_region, Ops, OpRegionsWithDups),
+    sort(OpRegionsWithDups, OpRegions),
+    member(Y, OpRegions).
 operand_region(in(X), Y) :- X = Y.
 operand_region(during(X, _), Y) :- X = Y.
+operand_region(during(X, _, _), Y) :- X = Y.
 operand_region(out(X), Y) :- X = Y.
 
 productive_task(fn(_, _)).
@@ -210,17 +220,43 @@ regions_make_progress(Regions) :-
     exists(has_op_in_future, Regions, FutureReg),
     PastReg.id \== FutureReg.id, !.
 
+before_flip(Y, X) :- before(X, Y).
+not_after_flip(Y, X) :- not_after(Y, X).
+
+before(any(Ops1), any(Ops2)) :-
+    !, exists_one(before, Ops1, Ops2).
+before(any(Ops1), Y) :-
+    !, exists_one(before_flip(Y), Ops1).
+before(X, any(Ops2)) :-
+    !, exists_one(before(X), Ops2).
 % Here we give the exceptions to the assumption of independence
 before(out(X), in(Y)) :-  !, X \== Y.
 before(out(X), during(Y, _)) :- !, X \== Y.
+before(out(X), during(Y, _, _)) :- !, X \== Y.
 before(out(X), out(Y)) :- !, X \== Y.
 before(during(X, _), in(Y)) :- !, X \== Y.
+before(during(X, _, _), in(Y)) :- !, X \== Y.
 % These are before if they're on different regions or the first is before the second.
-before(during(X, M), during(Y, N)) :- !, (X \== Y; M =< N), !.
+before(during(X, M), during(Y, N)) :- !, (X \== Y; M < N), !.
+before(during(X, M, _), during(Y, N)) :- !, (X \== Y; M < N), !.
+before(during(X, M), during(Y, N, _)) :- !, (X \== Y; M < N), !.
+before(during(X, M, A), during(Y, N, B)) :- !, (X \==Y; M < N; (M =:= N, A \== B)), !.
 before(_, _).
 
+% The obvious case
 not_after(X, X) :- !.
-not_after(during(X, M), during(X, N)) :- M is N, !.
+% Handle any()
+not_after(any(Ops1), any(Ops2)) :-
+    !, exists_one(not_after, Ops1, Ops2).
+not_after(any(Ops1), Y) :-
+    !, exists_one(not_after_flip(Y), Ops1).
+not_after(X, any(Ops2)) :-
+    !, exists_one(not_after(X), Ops2).
+% The special cases for during()
+not_after(during(X, M), during(X, N)) :- M =:= N, !.
+not_after(during(X, M, _), during(X, N)) :- M =:= N, !.
+not_after(during(X, M), during(X, N, _)) :- M =:= N, !.
+not_after(during(X, M, A), during(X, N, B)) :- M =:= N, A == B, !.
 not_after(X, Y) :- before(X, Y).
 
 dependencies_preserved(Regions) :-
@@ -240,17 +276,7 @@ fused_invariants(Invariants) :-
 loop_invariant(Invariant) :-
     fused_invariants([Invariant]).
 
-% Searching for Sylvester invariants yields duplicates
-% where there are algorithms that are identical
-% up to the order the subtractions in the top right are performed.
-% Find things that could not be such duplicates,
-% so we can toss everything but them on search pt. 2
-region_non_duplicate(_, _, true) :- !.
-region_non_duplicate(Past, Future, false) :-
-    has_fn(Past),
-    has_fn(Future).
-
-
+%% Test and example code
 
 print_region(Region) :-
     format("~w past: ~w~n~w future: ~w~n", [Region.id, Region.past, Region.id, Region.future]).
@@ -259,41 +285,28 @@ print_invariant(Invariant) :-
     maplist(print_region, Invariant).
 
 print_invariants([]).
+print_invariants([Invariant|[]]) :-
+    print_invariant(Invariant), !.
 print_invariants([Invariant|Invariants]) :-
     print_invariant(Invariant),
     format("then~n"),
     print_invariants(Invariants).
 
-print_four(Args) :-
-    format("Top left past: ~w~nTop left future: ~w~nTop right past: ~w~nTop right future: ~w~nBottom left past: ~w~nBottom left future: ~w~nBottom right past: ~w~nBottom right future: ~w~n~n", Args).
-
 sylvester :-
-    findall([PTl, FTl, PTr, FTr, PBl, FBl, PBr, FBr],
-            ((
-                    (BrInOp = in(tr), BrOutN = 0,
-                     TlInOp = during(tr, 0), TlOutN = 1,
-                     Initial = true);
-                    (BrInOp = during(tr, 0), BrOutN = 1,
-                     TlInOp = in(tr), TlOutN = 0,
-                     Initial = false)
-                ),
-             make_region(bl, [op([in(bl)], [out(bl)])],
-                         PBl, FBl, Bl),
-             make_region(tl, [fn([in(tl), out(bl)], [during(tl, 0)]),
-                              op([during(tl, 0)], [out(tl)])],
-                         PTl, FTl, Tl),
-             make_region(br, [fn([in(br), out(bl)], [during(br, 0)]),
-                              op([during(br, 0)], [out(br)])],
-                         PBr, FBr, Br),
-             make_region(tr, [fn([BrInOp, out(br)], [during(tr, BrOutN)]),
-                              fn([TlInOp, out(tl)], [during(tr, TlOutN)]),
-                              op([during(tr, 1)], [out(tr)])],
-                         PTr, FTr, Tr),
-             loop_invariant([Bl, Tl, Br, Tr]),
-             region_non_duplicate(PTr, FTr, Initial)),
+    findall(Invariant,
+            (make_invariant([bl-[op([in(bl)], [out(bl)])],
+                             tl-[fn([in(tl), out(bl)], [during(tl, 0)]),
+                                 op([during(tl, 0)], [out(tl)])],
+                             br-[fn([in(br), out(bl)], [during(br, 0)]),
+                                 op([during(br, 0)], [out(br)])],
+                             tr-[fn([any([in(tr), during(tr, 0, b)]), out(br)], [during(tr, 0, a)]),
+                                 fn([any([in(tr), during(tr, 0, a)]), out(tl)], [during(tr, 0, b)]),
+                                 op([during(tr, 0, a), during(tr, 0, b)], [out(tr)])]],
+                           Invariant),
+             loop_invariant(Invariant)),
             Results),
     length(Results, NumResults),
-    maplist(print_four, Results),
+    maplist(print_invariant_sep, Results),
     format("~d invariants~n", [NumResults]).
 
 print_invariant_sep(Invariant) :-
@@ -320,8 +333,8 @@ cholesky :-
 inverse :-
     findall(Invariant,
             (make_invariant([tl-[op([in(tl)], [out(tl)])],
-                             bl-[fn([during(bl, 0), out(tl)], [during(bl, 0)]),
-                                 fn([during(bl, 0), in(br)], [during(bl, 0)])],
+                             bl-[fn([any([in(bl), during(bl, 0, b)]), out(tl)], [during(bl, 0, a)]),
+                                 fn([any([in(bl), during(bl, 0, a)]), in(br)], [during(bl, 0, b)])],
                              br-[op([in(br)], [out(br)])]],
                            Invariant),
              loop_invariant(Invariant)),
@@ -338,8 +351,8 @@ fused_loops() :-
                                    op([during(br, 0)], [out(br)])]],
 
                               [tl-[op([in(tl)], [out(tl)])],
-                               bl-[fn([during(bl, 0), out(tl)], [during(bl, 0)]),
-                                   fn([during(bl, 0), in(br)], [during(bl, 0)])],
+                               bl-[fn([any([in(bl), during(bl, 0, b)]), out(tl)], [during(bl, 0, a)]),
+                                   fn([any([in(bl), during(bl, 0, a)]), in(br)], [during(bl, 0, b)])],
                                br-[op([in(br)], [out(br)])]]],
                             Invariants),
              fused_invariants(Invariants)),
@@ -352,8 +365,8 @@ fused_loops_ex2() :-
     findall(Invariants,
             (make_invariants(
                  [[tl-[op([in(tl)], [out(tl)])],
-                   bl-[fn([during(bl, 0), out(tl)], [during(bl, 0)]),
-                       fn([during(bl, 0), in(br)], [during(bl, 0)])],
+                   bl-[fn([any([in(bl), during(bl, 0, b)]), out(tl)], [during(bl, 0, a)]),
+                       fn([any([in(bl), during(bl, 0, a)]), in(br)], [during(bl, 0, b)])],
                    br-[op([in(br)], [out(br)])]],
 
                   [tl-[op([in(tl)], [during(tl, 0)]),
@@ -376,8 +389,8 @@ three_fused_loops() :-
                                    op([during(br, 0)], [out(br)])]],
 
                   [tl-[op([in(tl)], [out(tl)])],
-                   bl-[fn([during(bl, 0), out(tl)], [during(bl, 0)]),
-                       fn([during(bl, 0), in(br)], [during(bl, 0)])],
+                   bl-[fn([any([in(bl), during(bl, 0, b)]), out(tl)], [during(bl, 0, a)]),
+                       fn([any([in(bl), during(bl, 0, a)]), in(br)], [during(bl, 0, b)])],
                    br-[op([in(br)], [out(br)])]],
 
                   [tl-[op([in(tl)], [during(tl, 0)]),
