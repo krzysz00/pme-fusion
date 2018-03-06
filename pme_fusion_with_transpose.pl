@@ -61,6 +61,17 @@ make_region(Id, Tasks, Past, Future, Reg) :-
     maplist(task, Tasks),
     Reg = region{id:Id, tasks:Tasks, past:Past, future:Future}.
 
+region_with_tasks(Id, Tasks, Reg) :-
+    make_region(Id, Tasks, _Past, _Future, Reg).
+
+region_with_tasks(Id-Tasks, Reg) :- region_with_tasks(Id, Tasks, Reg).
+
+make_invariant(IdTasks, Regions) :-
+    maplist(region_with_tasks, IdTasks, Regions).
+
+make_invariants(IdTasks, Invariants) :-
+    maplist(make_invariant, IdTasks, Invariants).
+
 is_region(region{id:_, tasks:Tasks, past:Past, future:Future}) :-
     split(Tasks, Past, Future).
 
@@ -240,6 +251,19 @@ region_non_duplicate(Past, Future, false) :-
     has_fn(Future).
 
 
+
+print_region(Region) :-
+    format("~w past: ~w~n~w future: ~w~n", [Region.id, Region.past, Region.id, Region.future]).
+
+print_invariant(Invariant) :-
+    maplist(print_region, Invariant).
+
+print_invariants([]).
+print_invariants([Invariant|Invariants]) :-
+    print_invariant(Invariant),
+    format("then~n"),
+    print_invariants(Invariants).
+
 print_four(Args) :-
     format("Top left past: ~w~nTop left future: ~w~nTop right past: ~w~nTop right future: ~w~nBottom left past: ~w~nBottom left future: ~w~nBottom right past: ~w~nBottom right future: ~w~n~n", Args).
 
@@ -272,136 +296,98 @@ sylvester :-
     maplist(print_four, Results),
     format("~d invariants~n", [NumResults]).
 
-print_three(Args) :-
-    format("Top left past: ~w~nTop left future: ~w~nBottom left past: ~w~nBottom left future: ~w~nBottom right past: ~w~nBottom right future: ~w~n~n", Args).
+print_invariant_sep(Invariant) :-
+    print_invariant(Invariant),
+    format("~n").
+
+print_invariants_sep(Invariants) :-
+    print_invariants(Invariants),
+    format("~n").
 
 cholesky :-
-    findall([PTl, FTl, PBl, FBl, PBr, FBr],
-            (make_region(tl, [op([in(tl)], [out(tl)])],
-                         PTl, FTl, Tl),
-             make_region(bl, [fn([in(bl), out(tl)], [out(bl)])],
-                         PBl, FBl, Bl),
-             make_region(br, [fn([in(br), out(bl)], [during(br, 0)]),
-                              op([during(br, 0)], [out(br)])],
-                         PBr, FBr, Br),
-             loop_invariant([Tl, Bl, Br])),
+    findall(Invariant,
+            (make_invariant([tl-[op([in(tl)], [out(tl)])],
+                             bl-[fn([in(bl), out(tl)], [out(bl)])],
+                             br-[fn([in(br), out(bl)], [during(br, 0)]),
+                                 op([during(br, 0)], [out(br)])]],
+                            Invariant),
+             loop_invariant(Invariant)),
             Results),
-    maplist(print_three, Results),
+    maplist(print_invariant_sep, Results),
     length(Results, NumResults),
     format("~d invariants~n", [NumResults]).
 
 inverse :-
-    findall([PTl, FTl, PBl, FBl, PBr, FBr],
-            (make_region(tl, [op([in(tl)], [out(tl)])],
-                         PTl, FTl, Tl),
-             make_region(bl, [fn([during(bl, 0), out(tl)], [during(bl, 0)]),
-                              fn([during(bl, 0), in(br)], [during(bl, 0)])],
-                         PBl, FBl, Bl),
-             make_region(br, [op([in(br)], [out(br)])],
-                         PBr, FBr, Br),
-             loop_invariant([Tl, Bl, Br])),
+    findall(Invariant,
+            (make_invariant([tl-[op([in(tl)], [out(tl)])],
+                             bl-[fn([during(bl, 0), out(tl)], [during(bl, 0)]),
+                                 fn([during(bl, 0), in(br)], [during(bl, 0)])],
+                             br-[op([in(br)], [out(br)])]],
+                           Invariant),
+             loop_invariant(Invariant)),
             Results),
-    maplist(print_three, Results),
+    maplist(print_invariant_sep, Results),
     length(Results, NumResults),
     format("~d invariants~n", [NumResults]).
 
-print_three_twice(Result) :-
-    length(ResultA, 6),
-    length(ResultB, 6),
-    append(ResultA, ResultB, Result),
-    print_three(ResultA),
-    format("then~n"),
-    print_three(ResultB).
-
-print_three_thrice(Result) :-
-    length(ResultA, 6),
-    length(ResultBC, 12),
-    append(ResultA, ResultBC, Result),
-    length(ResultB, 6),
-    length(ResultC, 6),
-    append(ResultB, ResultC, ResultBC),
-    print_three(ResultA),
-    format("then~n"),
-    print_three(ResultB),
-    format("then~n"),
-    print_three(ResultC).
-
 fused_loops() :-
-    findall([PTlChol, FTlChol, PBlChol, FBlChol, PBrChol, FBrChol,
-             PTlInv, FTlInv, PBlInv, FBlInv, PBrInv, FBrInv],
-            (make_region(tl, [op([in(tl)], [out(tl)])],
-                         PTlChol, FTlChol, TlChol),
-             make_region(bl, [fn([in(bl), out(tl)], [out(bl)])],
-                         PBlChol, FBlChol, BlChol),
-             make_region(br, [fn([in(br), out(bl)], [during(br, 0)]),
-                              op([during(br, 0)], [out(br)])],
-                         PBrChol, FBrChol, BrChol),
-             make_region(tl, [op([in(tl)], [out(tl)])],
-                         PTlInv, FTlInv, TlInv),
-             make_region(bl, [fn([during(bl, 0), out(tl)], [during(bl, 0)]),
-                              fn([during(bl, 0), in(br)], [during(bl, 0)])],
-                         PBlInv, FBlInv, BlInv),
-             make_region(br, [op([in(br)], [out(br)])],
-                         PBrInv, FBrInv, BrInv),
-             fused_invariants([[TlChol, BlChol, BrChol], [TlInv, BlInv, BrInv]])),
+    findall(Invariants,
+            (make_invariants([[tl-[op([in(tl)], [out(tl)])],
+                               bl-[fn([in(bl), out(tl)], [out(bl)])],
+                               br-[fn([in(br), out(bl)], [during(br, 0)]),
+                                   op([during(br, 0)], [out(br)])]],
+
+                              [tl-[op([in(tl)], [out(tl)])],
+                               bl-[fn([during(bl, 0), out(tl)], [during(bl, 0)]),
+                                   fn([during(bl, 0), in(br)], [during(bl, 0)])],
+                               br-[op([in(br)], [out(br)])]]],
+                            Invariants),
+             fused_invariants(Invariants)),
             Results),
-    maplist(print_three_twice, Results),
+    maplist(print_invariants_sep, Results),
     length(Results, NumResults),
     format("~d invariants~n", [NumResults]).
 
 fused_loops_ex2() :-
-    findall([PTlInv, FTlInv, PBlInv, FBlInv, PBrInv, FBrInv,
-             PTlTrmm, FTlTrmm, PBlTrmm, FBlTrmm, PBrTrmm, FBrTrmm],
-            (make_region(tl, [op([in(tl)], [out(tl)])],
-                         PTlInv, FTlInv, TlInv),
-             make_region(bl, [fn([during(bl, 0), out(tl)], [during(bl, 0)]),
-                              fn([during(bl, 0), in(br)], [during(bl, 0)])],
-                         PBlInv, FBlInv, BlInv),
-             make_region(br, [op([in(br)], [out(br)])],
-                         PBrInv, FBrInv, BrInv),
-             make_region(tl, [op([in(tl)], [during(tl, 0)]),
-                              fn([in(bl), during(tl, 0)], [out(tl)])],
-                         PTlTrmm, FTlTrmm, TlTrmm),
-             make_region(bl, [fn([in(br), in(bl)], [out(bl)])],
-                         PBlTrmm, FBlTrmm, BlTrmm),
-             make_region(br, [op([in(br)], [out(br)])],
-                         PBrTrmm, FBrTrmm, BrTrmm),
-             fused_invariants([[TlInv, BlInv, BrInv], [TlTrmm, BlTrmm, BrTrmm]])),
+    findall(Invariants,
+            (make_invariants(
+                 [[tl-[op([in(tl)], [out(tl)])],
+                   bl-[fn([during(bl, 0), out(tl)], [during(bl, 0)]),
+                       fn([during(bl, 0), in(br)], [during(bl, 0)])],
+                   br-[op([in(br)], [out(br)])]],
+
+                  [tl-[op([in(tl)], [during(tl, 0)]),
+                       fn([in(bl), during(tl, 0)], [out(tl)])],
+                   bl-[fn([in(br), in(bl)], [out(bl)])],
+                   br-[op([in(br)], [out(br)])]]],
+                 Invariants),
+             fused_invariants(Invariants)),
             Results),
-    maplist(print_three_twice, Results),
+    maplist(print_invariants_sep, Results),
     length(Results, NumResults),
     format("~d invariants~n", [NumResults]).
 
 three_fused_loops() :-
-    findall([PTlChol, FTlChol, PBlChol, FBlChol, PBrChol, FBrChol,
-             PTlInv, FTlInv, PBlInv, FBlInv, PBrInv, FBrInv,
-             PTlTrmm, FTlTrmm, PBlTrmm, FBlTrmm, PBrTrmm, FBrTrmm],
-            (make_region(tl, [op([in(tl)], [out(tl)])],
-                         PTlChol, FTlChol, TlChol),
-             make_region(bl, [fn([in(bl), out(tl)], [out(bl)])],
-                         PBlChol, FBlChol, BlChol),
-             make_region(br, [fn([in(br), out(bl)], [during(br, 0)]),
-                              op([during(br, 0)], [out(br)])],
-                         PBrChol, FBrChol, BrChol),
-             make_region(tl, [op([in(tl)], [out(tl)])],
-                         PTlInv, FTlInv, TlInv),
-             make_region(bl, [fn([during(bl, 0), out(tl)], [during(bl, 0)]),
-                              fn([during(bl, 0), in(br)], [during(bl, 0)])],
-                         PBlInv, FBlInv, BlInv),
-             make_region(br, [op([in(br)], [out(br)])],
-                         PBrInv, FBrInv, BrInv),
-             make_region(tl, [op([in(tl)], [during(tl, 0)]),
-                              fn([in(bl), during(tl, 0)], [out(tl)])],
-                         PTlTrmm, FTlTrmm, TlTrmm),
-             make_region(bl, [fn([in(br), in(bl)], [out(bl)])],
-                         PBlTrmm, FBlTrmm, BlTrmm),
-             make_region(br, [op([in(br)], [out(br)])],
-                         PBrTrmm, FBrTrmm, BrTrmm),
-             fused_invariants([[TlChol, BlChol, BrChol],
-                               [TlInv, BlInv, BrInv],
-                               [TlTrmm, BlTrmm, BrTrmm]])),
+    findall(Invariants,
+            (make_invariants(
+                 [[tl-[op([in(tl)], [out(tl)])],
+                               bl-[fn([in(bl), out(tl)], [out(bl)])],
+                               br-[fn([in(br), out(bl)], [during(br, 0)]),
+                                   op([during(br, 0)], [out(br)])]],
+
+                  [tl-[op([in(tl)], [out(tl)])],
+                   bl-[fn([during(bl, 0), out(tl)], [during(bl, 0)]),
+                       fn([during(bl, 0), in(br)], [during(bl, 0)])],
+                   br-[op([in(br)], [out(br)])]],
+
+                  [tl-[op([in(tl)], [during(tl, 0)]),
+                       fn([in(bl), during(tl, 0)], [out(tl)])],
+                   bl-[fn([in(br), in(bl)], [out(bl)])],
+                   br-[op([in(br)], [out(br)])]]],
+                 Invariants),
+             fused_invariants(Invariants)),
             Results),
-    maplist(print_three_thrice, Results),
+    maplist(print_invariants_sep, Results),
     length(Results, NumResults),
     format("~d invariants~n", [NumResults]).
 
