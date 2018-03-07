@@ -1,4 +1,9 @@
 #!/usr/bin/env swipl
+:- module(pme_fusion,
+          [make_region/5, region_with_tasks/2, region_with_tasks/3,
+           make_invariant/2, make_invariants/2,
+           fused_invariants/1, loop_invariant/1,
+           test_pme/1, test_pmes/1, main/0]).
 
 :- use_module(library(assoc)).
 :- use_module(library(clpfd)).
@@ -292,23 +297,6 @@ print_invariants([Invariant|Invariants]) :-
     format("then~n"),
     print_invariants(Invariants).
 
-sylvester :-
-    findall(Invariant,
-            (make_invariant([bl-[op([in(bl)], [out(bl)])],
-                             tl-[fn([in(tl), out(bl)], [during(tl, 0)]),
-                                 op([during(tl, 0)], [out(tl)])],
-                             br-[fn([in(br), out(bl)], [during(br, 0)]),
-                                 op([during(br, 0)], [out(br)])],
-                             tr-[fn([any([in(tr), during(tr, 0, b)]), out(br)], [during(tr, 0, a)]),
-                                 fn([any([in(tr), during(tr, 0, a)]), out(tl)], [during(tr, 0, b)]),
-                                 op([during(tr, 0, a), during(tr, 0, b)], [out(tr)])]],
-                           Invariant),
-             loop_invariant(Invariant)),
-            Results),
-    length(Results, NumResults),
-    maplist(print_invariant_sep, Results),
-    format("~d invariants~n", [NumResults]).
-
 print_invariant_sep(Invariant) :-
     print_invariant(Invariant),
     format("~n").
@@ -317,91 +305,85 @@ print_invariants_sep(Invariants) :-
     print_invariants(Invariants),
     format("~n").
 
-cholesky :-
+test_pme(PME) :-
     findall(Invariant,
-            (make_invariant([tl-[op([in(tl)], [out(tl)])],
-                             bl-[fn([in(bl), out(tl)], [out(bl)])],
-                             br-[fn([in(br), out(bl)], [during(br, 0)]),
-                                 op([during(br, 0)], [out(br)])]],
-                            Invariant),
+            (make_invariant(PME, Invariant),
              loop_invariant(Invariant)),
             Results),
-    maplist(print_invariant_sep, Results),
     length(Results, NumResults),
+    maplist(print_invariant_sep, Results),
     format("~d invariants~n", [NumResults]).
+
+test_pmes(PMEs) :-
+    findall(Invariants,
+            (make_invariants(PMEs, Invariants),
+             fused_invariants(Invariants)),
+            Results),
+    length(Results, NumResults),
+    maplist(print_invariants_sep, Results),
+    format("~d invariants~n", [NumResults]).
+
+sylvester :-
+    test_pme([bl-[op([in(bl)], [out(bl)])],
+              tl-[fn([in(tl), out(bl)], [during(tl, 0)]),
+                  op([during(tl, 0)], [out(tl)])],
+              br-[fn([in(br), out(bl)], [during(br, 0)]),
+                  op([during(br, 0)], [out(br)])],
+              tr-[fn([any([in(tr), during(tr, 0, b)]), out(br)], [during(tr, 0, a)]),
+                  fn([any([in(tr), during(tr, 0, a)]), out(tl)], [during(tr, 0, b)]),
+                  op([during(tr, 0, a), during(tr, 0, b)], [out(tr)])]]).
+
+
+cholesky :-
+    test_pme([tl-[op([in(tl)], [out(tl)])],
+              bl-[fn([in(bl), out(tl)], [out(bl)])],
+              br-[fn([in(br), out(bl)], [during(br, 0)]),
+                  op([during(br, 0)], [out(br)])]]).
 
 inverse :-
-    findall(Invariant,
-            (make_invariant([tl-[op([in(tl)], [out(tl)])],
-                             bl-[fn([any([in(bl), during(bl, 0, b)]), out(tl)], [during(bl, 0, a)]),
-                                 fn([any([in(bl), during(bl, 0, a)]), in(br)], [during(bl, 0, b)])],
-                             br-[op([in(br)], [out(br)])]],
-                           Invariant),
-             loop_invariant(Invariant)),
-            Results),
-    maplist(print_invariant_sep, Results),
-    length(Results, NumResults),
-    format("~d invariants~n", [NumResults]).
+    test_pme([tl-[op([in(tl)], [out(tl)])],
+              bl-[fn([any([in(bl), during(bl, 0, b)]), out(tl)], [during(bl, 0, a)]),
+                  fn([any([in(bl), during(bl, 0, a)]), in(br)], [during(bl, 0, b)])],
+              br-[op([in(br)], [out(br)])]]).
 
 fused_loops() :-
-    findall(Invariants,
-            (make_invariants([[tl-[op([in(tl)], [out(tl)])],
-                               bl-[fn([in(bl), out(tl)], [out(bl)])],
-                               br-[fn([in(br), out(bl)], [during(br, 0)]),
-                                   op([during(br, 0)], [out(br)])]],
+    test_pmes([[tl-[op([in(tl)], [out(tl)])],
+                bl-[fn([in(bl), out(tl)], [out(bl)])],
+                br-[fn([in(br), out(bl)], [during(br, 0)]),
+                    op([during(br, 0)], [out(br)])]],
 
-                              [tl-[op([in(tl)], [out(tl)])],
-                               bl-[fn([any([in(bl), during(bl, 0, b)]), out(tl)], [during(bl, 0, a)]),
-                                   fn([any([in(bl), during(bl, 0, a)]), in(br)], [during(bl, 0, b)])],
-                               br-[op([in(br)], [out(br)])]]],
-                            Invariants),
-             fused_invariants(Invariants)),
-            Results),
-    maplist(print_invariants_sep, Results),
-    length(Results, NumResults),
-    format("~d invariants~n", [NumResults]).
+               [tl-[op([in(tl)], [out(tl)])],
+                bl-[fn([any([in(bl), during(bl, 0, b)]), out(tl)], [during(bl, 0, a)]),
+                    fn([any([in(bl), during(bl, 0, a)]), in(br)], [during(bl, 0, b)])],
+                br-[op([in(br)], [out(br)])]]]).
 
 fused_loops_ex2() :-
-    findall(Invariants,
-            (make_invariants(
-                 [[tl-[op([in(tl)], [out(tl)])],
-                   bl-[fn([any([in(bl), during(bl, 0, b)]), out(tl)], [during(bl, 0, a)]),
-                       fn([any([in(bl), during(bl, 0, a)]), in(br)], [during(bl, 0, b)])],
-                   br-[op([in(br)], [out(br)])]],
+   test_pmes(
+       [[tl-[op([in(tl)], [out(tl)])],
+         bl-[fn([any([in(bl), during(bl, 0, b)]), out(tl)], [during(bl, 0, a)]),
+             fn([any([in(bl), during(bl, 0, a)]), in(br)], [during(bl, 0, b)])],
+         br-[op([in(br)], [out(br)])]],
 
-                  [tl-[op([in(tl)], [during(tl, 0)]),
-                       fn([in(bl), during(tl, 0)], [out(tl)])],
-                   bl-[fn([in(br), in(bl)], [out(bl)])],
-                   br-[op([in(br)], [out(br)])]]],
-                 Invariants),
-             fused_invariants(Invariants)),
-            Results),
-    maplist(print_invariants_sep, Results),
-    length(Results, NumResults),
-    format("~d invariants~n", [NumResults]).
+        [tl-[op([in(tl)], [during(tl, 0)]),
+             fn([in(bl), during(tl, 0)], [out(tl)])],
+         bl-[fn([in(br), in(bl)], [out(bl)])],
+         br-[op([in(br)], [out(br)])]]]).
 
 three_fused_loops() :-
-    findall(Invariants,
-            (make_invariants(
-                 [[tl-[op([in(tl)], [out(tl)])],
-                               bl-[fn([in(bl), out(tl)], [out(bl)])],
-                               br-[fn([in(br), out(bl)], [during(br, 0)]),
-                                   op([during(br, 0)], [out(br)])]],
+    test_pmes(
+        [[tl-[op([in(tl)], [out(tl)])],
+          bl-[fn([in(bl), out(tl)], [out(bl)])],
+          br-[fn([in(br), out(bl)], [during(br, 0)]),
+              op([during(br, 0)], [out(br)])]],
 
-                  [tl-[op([in(tl)], [out(tl)])],
-                   bl-[fn([any([in(bl), during(bl, 0, b)]), out(tl)], [during(bl, 0, a)]),
-                       fn([any([in(bl), during(bl, 0, a)]), in(br)], [during(bl, 0, b)])],
-                   br-[op([in(br)], [out(br)])]],
+         [tl-[op([in(tl)], [out(tl)])],
+          bl-[fn([any([in(bl), during(bl, 0, b)]), out(tl)], [during(bl, 0, a)]),
+              fn([any([in(bl), during(bl, 0, a)]), in(br)], [during(bl, 0, b)])],
+          br-[op([in(br)], [out(br)])]],
 
-                  [tl-[op([in(tl)], [during(tl, 0)]),
-                       fn([in(bl), during(tl, 0)], [out(tl)])],
-                   bl-[fn([in(br), in(bl)], [out(bl)])],
-                   br-[op([in(br)], [out(br)])]]],
-                 Invariants),
-             fused_invariants(Invariants)),
-            Results),
-    maplist(print_invariants_sep, Results),
-    length(Results, NumResults),
-    format("~d invariants~n", [NumResults]).
+         [tl-[op([in(tl)], [during(tl, 0)]),
+              fn([in(bl), during(tl, 0)], [out(tl)])],
+          bl-[fn([in(br), in(bl)], [out(bl)])],
+          br-[op([in(br)], [out(br)])]]]).
 
 main :- three_fused_loops.
