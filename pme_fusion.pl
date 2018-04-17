@@ -133,6 +133,7 @@ last_computed_delta(AnyRegion, Delta) :-
 first_uncomputed_delta(AnyRegion, Delta) :-
     is_uncomputed(AnyRegion) -> (Delta = -1); (Delta = 0).
 
+%% BUG: Lists of []s can result in massive duplication of effort
 computable_order(Region, LastComputeds, FirstUncomputeds) :-
     append(Computed, [Any|Uncomputed], Region),
     maplist(is_computed, Computed),
@@ -211,7 +212,6 @@ fusable(Regions) :-
     to_region_length_vars(Regions, FirstUncomputeds),
     map_assoc(fusable_region(LastComputeds, FirstUncomputeds), Regions).
 
-
 region_with_id(_, [], _) :- fail.
 region_with_id(Id, [R|Tail], Region) :-
     (R.id == Id, !, R = Region);
@@ -284,6 +284,7 @@ loop_invariant(Invariant) :-
 %% Test and example code
 
 print_region(Region) :-
+    (Region.tasks == [], !);
     format("~w past: ~w~n~w future: ~w~n", [Region.id, Region.past, Region.id, Region.future]).
 
 print_invariant(Invariant) :-
@@ -323,6 +324,17 @@ test_pmes(PMEs) :-
     maplist(print_invariants_sep, Results),
     format("~d invariants~n", [NumResults]).
 
+test_pmes_dedup(PMEs) :-
+    findall(Invariants,
+            (make_invariants(PMEs, Invariants),
+             fused_invariants(Invariants)),
+            Results),
+    length(Results, NumResults),
+    sort(Results, Invariants),
+    length(Invariants, NumInvariants),
+    maplist(print_invariants_sep, Invariants),
+    format("~d results~n~d invariants", [NumResults, NumInvariants]).
+
 sylvester :-
     test_pme([bl-[op([in(bl)], [out(bl)])],
               tl-[fn([in(tl), out(bl)], [during(tl, 0)]),
@@ -341,6 +353,8 @@ cholesky :-
                   op([during(br, 0)], [out(br)])]]).
 
 inverse :-
+    %% NOTE: the in(br) and out(tl) in the bl terms can be any([in(...), out(...)])
+    %% which will ensure generality
     test_pme([tl-[op([in(tl)], [out(tl)])],
               bl-[fn([any([in(bl), during(bl, 0, b)]), out(tl)], [during(bl, 0, a)]),
                   fn([any([in(bl), during(bl, 0, a)]), in(br)], [during(bl, 0, b)])],
@@ -368,6 +382,32 @@ fused_loops_ex2() :-
              fn([in(bl), during(tl, 0)], [out(tl)])],
          bl-[fn([in(br), in(bl)], [out(bl)])],
          br-[op([in(br)], [out(br)])]]]).
+
+inv_true_dep() :-
+    test_pmes_dedup(
+        [[r_tl-[op([out(l_tl)], [out(r_tl)])],
+          r_bl-[fn([any([out(l_bl), during(r_bl, 0, b)]), out(r_tl)], [during(r_bl, 0, a)]),
+             fn([any([out(l_bl), during(r_bl, 0, a)]), out(l_br)], [during(r_bl, 0, b)])],
+          r_br-[op([out(l_br)], [out(r_br)])],
+          y_t-[], y_b-[], x_t-[], x_b-[], l_tl-[], l_bl-[], l_br-[]],
+
+         [y_t-[op([out(r_tl), out(x_t), in(y_t)], [out(y_t)])],
+          y_b-[op([out(r_bl), out(x_b), any([in(y_b), during(y_b, 0, b)])], [during(y_b, 0, a)]),
+               op([out(r_br), out(x_b), any([in(y_b), during(y_b, 0, a)])], [during(y_b, 0, b)])],
+          x_t-[], x_b-[], r_tl-[], r_bl-[], r_br-[], l_tl-[], l_bl-[], l_br-[]]]).
+
+inv_anti_dep :-
+    test_pmes_dedup(
+        [[y_t-[op([out(l_tl), out(x_t), in(y_t)], [out(y_t)])],
+          y_b-[op([out(l_bl), out(x_b), any([in(y_b), during(y_b, 0, b)])], [during(y_b, 0, a)]),
+               op([out(l_br), out(x_b), any([in(y_b), during(y_b, 0, a)])], [during(y_b, 0, b)])],
+          x_t-[], x_b-[], l_tl-[], l_bl-[], l_br-[]],
+
+         [l_tl-[op([in(l_tl)], [out(l_tl)])],
+          l_bl-[fn([any([in(l_bl), during(l_bl, 0, b)]), out(l_tl)], [during(l_bl, 0, a)]),
+                fn([any([in(l_bl), during(l_bl, 0, a)]), in(l_br)], [during(l_bl, 0, b)])],
+          l_br-[op([in(l_br)], [out(l_br)])],
+          y_t-[], y_b-[], x_t-[], x_b-[]]]).
 
 three_fused_loops() :-
     test_pmes(
