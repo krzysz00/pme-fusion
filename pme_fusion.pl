@@ -3,7 +3,8 @@
           [make_region/5, region_with_tasks/2, region_with_tasks/3,
            make_invariant/2, make_invariants/2,
            fused_invariants/1, loop_invariant/1,
-           test_pme/1, test_pmes/1, main/0]).
+           test_pme/1, test_pmes/1, test_pmes_dedup/1,
+           main/0]).
 
 :- use_module(library(assoc)).
 :- use_module(library(clpfd)).
@@ -105,11 +106,11 @@ get_assoc_default(Key, Assoc, Value, Default) :-
     (Value = Default, !).
 
 transpose_invariants_([], Accum, Out) :- Out = Accum.
-transpose_invariants_([Region|Future], Accum, Out) :-
+transpose_invariants_([Region|Others], Accum, Out) :-
     Id = Region.id,
     get_assoc_default(Id, Accum, Past, []),
     put_assoc(Id, Accum, [Region|Past], NewAccum),
-    transpose_invariants_(Future, NewAccum, Out).
+    transpose_invariants_(Others, NewAccum, Out).
 
 transpose_invariants([], Regions, Out) :-
     map_assoc(reverse, Regions, Out), !.
@@ -384,7 +385,7 @@ fused_loops_ex2() :-
          br-[op([in(br)], [out(br)])]]]).
 
 inv_true_dep() :-
-    test_pmes_dedup(
+    test_pmes(
         [[r_tl-[op([out(l_tl)], [out(r_tl)])],
           r_bl-[fn([any([out(l_bl), during(r_bl, 0, b)]), out(r_tl)], [during(r_bl, 0, a)]),
              fn([any([out(l_bl), during(r_bl, 0, a)]), out(l_br)], [during(r_bl, 0, b)])],
@@ -392,14 +393,14 @@ inv_true_dep() :-
           y_t-[], y_b-[], x_t-[], x_b-[], l_tl-[], l_bl-[], l_br-[]],
 
          [y_t-[op([out(r_tl), out(x_t), in(y_t)], [out(y_t)])],
-          y_b-[op([out(r_bl), out(x_b), any([in(y_b), during(y_b, 0, b)])], [during(y_b, 0, a)]),
+          y_b-[op([out(r_bl), out(x_t), any([in(y_b), during(y_b, 0, b)])], [during(y_b, 0, a)]),
                op([out(r_br), out(x_b), any([in(y_b), during(y_b, 0, a)])], [during(y_b, 0, b)])],
           x_t-[], x_b-[], r_tl-[], r_bl-[], r_br-[], l_tl-[], l_bl-[], l_br-[]]]).
 
 inv_anti_dep :-
     test_pmes_dedup(
         [[y_t-[op([out(l_tl), out(x_t), in(y_t)], [out(y_t)])],
-          y_b-[op([out(l_bl), out(x_b), any([in(y_b), during(y_b, 0, b)])], [during(y_b, 0, a)]),
+          y_b-[op([out(l_bl), out(x_t), any([in(y_b), during(y_b, 0, b)])], [during(y_b, 0, a)]),
                op([out(l_br), out(x_b), any([in(y_b), during(y_b, 0, a)])], [during(y_b, 0, b)])],
           x_t-[], x_b-[], l_tl-[], l_bl-[], l_br-[]],
 
