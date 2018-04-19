@@ -101,6 +101,11 @@ is_uncomputed(Region) :-
     (Region.future = Region.tasks),
     !.
 
+is_partial(Region) :-
+    (Region.past \= []),
+    (Region.future \= []),
+    !.
+
 get_assoc_default(Key, Assoc, Value, Default) :-
     (get_assoc(Key, Assoc, Value), !);
     (Value = Default, !).
@@ -134,11 +139,12 @@ last_computed_delta(AnyRegion, Delta) :-
 first_uncomputed_delta(AnyRegion, Delta) :-
     is_uncomputed(AnyRegion) -> (Delta = -1); (Delta = 0).
 
-%% BUG: Lists of []s can result in massive duplication of effort
 computable_order(Region, LastComputeds, FirstUncomputeds) :-
     append(Computed, [Any|Uncomputed], Region),
     maplist(is_computed, Computed),
     maplist(is_uncomputed, Uncomputed),
+    %% For independent iterations, replace next statement with
+    %% (is_computed(Any); is_uncomputed(Any))
     is_region(Any),
     % We already did this case with that Computed being the Any
     \+ (is_uncomputed(Any), Computed \== []),
@@ -226,6 +232,9 @@ regions_make_progress(Regions) :-
     exists(has_op_in_future, Regions, FutureReg),
     PastReg.id \== FutureReg.id, !.
 
+might_have_rank_k_update(Regions) :-
+    exists_one(is_partial, Regions).
+
 before_flip(Y, X) :- before(X, Y).
 not_after_flip(Y, X) :- not_after(Y, X).
 
@@ -267,10 +276,14 @@ not_after(X, Y) :- before(X, Y).
 
 dependencies_preserved(Regions) :-
     regions_to_operands(Regions, PastIns, PastOuts, FutureIns, FutureOuts),
+    %% For independent iterations, replace next statement with
+    %% maplist2(before, PastOuts, FutureIns),
     maplist2(not_after, PastOuts, FutureIns),
     maplist2(before, PastIns, FutureOuts).
 
 valid_loop_invariant(Regions) :-
+    %% Uncomment below to restrict to possible rank-k updates
+    %% might_have_rank_k_update(Regions),
     regions_make_progress(Regions),
     dependencies_preserved(Regions).
 
