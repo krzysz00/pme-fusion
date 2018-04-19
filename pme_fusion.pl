@@ -198,7 +198,7 @@ fusion_dependency_check(N, [Region|Future], LastComputeds, FirstUncomputeds) :-
     partition_task_operands(Region.past, PastIns, _),
     partition_task_operands(Region.future, FutureIns, _),
     maplist(constrain_from_past_input(N, LastComputeds), PastIns),
-    maplist(constrain_from_future_input(N, FirstUncomputeds), FutureIns),
+    maplist(constrain_from_future_input(N, FirstUncomputeds), FutureIns), !,
     NewN is N + 1,
     fusion_dependency_check(NewN, Future, LastComputeds, FirstUncomputeds).
 fusion_dependency_check(Region, LastComputeds, FirstUncomputeds) :-
