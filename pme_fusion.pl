@@ -4,6 +4,7 @@
            make_invariant/2, make_invariants/2,
            fused_invariants/1, loop_invariant/1,
            test_pme/1, test_pmes/1, test_pmes_dedup/1,
+           add_empty_regions/3,
            main/0]).
 
 :- use_module(library(assoc)).
@@ -232,6 +233,17 @@ regions_make_progress(Regions) :-
     exists(has_op_in_future, Regions, FutureReg),
     PastReg.id \== FutureReg.id, !.
 
+no_floating_noops(Regions, Region) :-
+    (Region.tasks = [noop([In], [_Out])]) ->
+        (operand_region(In, InId),
+         region_with_id(InId, Regions, InReg),
+         ((InReg.future == []) -> (Region.future == []);
+          (Region.past == [])));
+    true.
+
+no_floating_noops(Regions) :-
+    maplist(no_floating_noops(Regions), Regions).
+
 might_have_rank_k_update(Regions) :-
     exists_one(is_partial, Regions).
 
@@ -285,6 +297,7 @@ valid_loop_invariant(Regions) :-
     %% Uncomment below to restrict to possible rank-k updates
     %% might_have_rank_k_update(Regions),
     regions_make_progress(Regions),
+    no_floating_noops(Regions),
     dependencies_preserved(Regions).
 
 fused_invariants(Invariants) :-
@@ -348,6 +361,15 @@ test_pmes_dedup(PMEs) :-
     length(Invariants, NumInvariants),
     maplist(print_invariants_sep, Invariants),
     format("~d results~n~d invariants", [NumResults, NumInvariants]).
+
+add_empty_regions_([], PME, NewPME) :- PME = NewPME.
+add_empty_regions_([Id|Ids], PME, NewPME) :-
+    (exists_one(=(Id-_), PME), !,
+     add_empty_regions_(Ids, PME, NewPME));
+    add_empty_regions_(Ids, [Id-[]|PME], NewPME).
+
+add_empty_regions(Ids, PMEs, NewPMEs) :-
+    maplist(add_empty_regions_(Ids), PMEs, NewPMEs).
 
 sylvester :-
     test_pme([bl-[op([in(bl)], [out(bl)])],
