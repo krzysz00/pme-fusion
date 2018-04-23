@@ -147,7 +147,7 @@ computable_order(Region, LastComputeds, FirstUncomputeds) :-
     %% (is_computed(Any); is_uncomputed(Any))
     is_region(Any),
     % We already did this case with that Computed being the Any
-    \+ (is_uncomputed(Any), Computed \== []),
+    \+ (is_computed(Any), Uncomputed \== []),
 
     (Id = Any.id),
     get_assoc(Id, LastComputeds, LastComputedConstraint),
@@ -398,7 +398,7 @@ fused_loops_ex2() :-
          br-[op([in(br)], [out(br)])]]]).
 
 inv_true_dep() :-
-    test_pmes(
+    test_pmes_dedup(
         [[r_tl-[op([out(l_tl)], [out(r_tl)])],
           r_bl-[fn([any([out(l_bl), during(r_bl, 0, b)]), out(r_tl)], [during(r_bl, 0, a)]),
              fn([any([out(l_bl), during(r_bl, 0, a)]), out(l_br)], [during(r_bl, 0, b)])],
