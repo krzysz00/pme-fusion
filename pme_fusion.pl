@@ -4,8 +4,7 @@
            make_invariant/2, make_invariants/2,
            fused_invariants/1, loop_invariant/1,
            test_pme/1, test_pmes/1, test_pmes_dedup/1,
-           add_empty_regions/3, add_forwarding_noops/3,
-           main/0]).
+           add_empty_regions/3]).
 
 :- use_module(library(assoc)).
 :- use_module(library(clpfd)).
@@ -107,11 +106,9 @@ is_partial(Region) :-
     (Region.future \= []),
     !.
 
-is_forwarding_noop(Region) :-
-    (Id = Region.id),
-    (Region.tasks = [noop([in(Id)], [during(Id, 0)]),
-                     noop([during(Id, 0)], [out(Id)])]),
-    !.
+is_empty(Region) :-
+    (Region.tasks = []), !.
+
 
 get_assoc_default(Key, Assoc, Value, Default) :-
     (get_assoc(Key, Assoc, Value), !);
@@ -146,63 +143,49 @@ last_computed_delta(AnyRegion, Delta) :-
 first_uncomputed_delta(AnyRegion, Delta) :-
     is_uncomputed(AnyRegion) -> (Delta = -1); (Delta = 0).
 
-extract_forwarding_noops([], AccumFwdNoops, ForwardingNoops, Uncomputed) :-
-    reverse(AccumFwdNoops, ForwardingNoops),
+extract_empty_prefix([], AccumEmptys, Emptys, Uncomputed) :-
+    reverse(AccumEmptys, Emptys),
     Uncomputed = [].
-extract_forwarding_noops([Reg|Regs], AccumFwdNoops, ForwardingNoops, Uncomputed)  :-
-    is_forwarding_noop(Reg) ->
-        extract_forwarding_noops(Regs, [Reg|AccumFwdNoops], ForwardingNoops, Uncomputed);
-    (reverse(AccumFwdNoops, ForwardingNoops), Uncomputed = [Reg|Regs]).
+extract_empty_prefix([Reg|Regs], AccumEmptys, Emptys, Uncomputed)  :-
+    is_empty(Reg) ->
+        extract_empty_prefix(Regs, [Reg|AccumEmptys], Emptys, Uncomputed);
+    (reverse(AccumEmptys, Emptys), Uncomputed = [Reg|Regs]).
 
-extract_forwarding_noops(MaybeUncomp, ForwardingNoops, Uncomputed) :-
-    extract_forwarding_noops(MaybeUncomp, [], ForwardingNoops, Uncomputed).
+extract_empty_prefix(MaybeUncomp, Emptys, Uncomputed) :-
+    extract_empty_prefix(MaybeUncomp, [], Emptys, Uncomputed).
 
-partial_forwarding_noop(Noop) :-
-    ([PastTask, FutureTask] = Noop.tasks),
-    (Noop.past = [PastTask]),
-    (Noop.future = [FutureTask]).
-
-make_like_any(computed, ForwardingNoops) :- !, maplist(is_computed, ForwardingNoops).
-make_like_any(uncomputed, ForwardingNoops) :- !, maplist(is_uncomputed, ForwardingNoops).
-make_like_any(partial, ForwardingNoops) :- !, maplist(partial_forwarding_noop, ForwardingNoops).
-
-make_like_any(Any, ForwardingNoops) :-
-    is_computed(Any) -> make_like_any(computed, ForwardingNoops);
-    is_uncomputed(Any) -> make_like_any(uncomputed, ForwardingNoops);
-    is_partial(Any) -> make_like_any(partial, ForwardingNoops).
 
 computable_order(Region, LastComputeds, FirstUncomputeds) :-
-    append(Computed, [Any|NoopsAndUncomputed], Region),
-    extract_forwarding_noops(NoopsAndUncomputed, ForwardingNoops, Uncomputed),
-    \+ (is_forwarding_noop(Any), Computed \== []),
+    append(Computed, [Any|EmptyAndUncomputed], Region),
+    extract_empty_prefix(EmptyAndUncomputed, Empty, Uncomputed),
     maplist(is_computed, Computed),
     maplist(is_uncomputed, Uncomputed),
     %% For independent iterations, replace next statement with
     %% (is_computed(Any); is_uncomputed(Any))
     is_region(Any),
-    (is_forwarding_noop(Any) -> is_computed(Any); true),
     % We'll have tried this for the case where a previous Any was computed
+    % This also gets rid of redundant checks for empty regions
     \+ (is_uncomputed(Any), Computed \== []),
 
-    make_like_any(Any, ForwardingNoops),
-    length(ForwardingNoops, LenForwardingNoops),
-    NLikeAny is LenForwardingNoops + 1,
+    maplist(is_region, Empty),
+    length(Empty, LenEmpty),
+    NLikeAny is LenEmpty + 1,
 
     (Id = Any.id),
     get_assoc(Id, LastComputeds, LastComputedConstraint),
     length(Computed, LenComputed),
     last_computed_delta(Any, LastComputedDelta),
     LastComputed is (LenComputed - 1) + LastComputedDelta,
-    LastComputedForwarded is (LenComputed - 1) + (LastComputedDelta * NLikeAny),
-    LastComputedConstraint in (LastComputed \/ LastComputedForwarded),
+    LastComputedWithEmpty is (LenComputed - 1) + (LastComputedDelta * NLikeAny),
+    LastComputedConstraint in (LastComputed..LastComputedWithEmpty),
 
     get_assoc(Id, FirstUncomputeds, FirstUncomputedConstraint),
     length(Uncomputed, LenUncomputed),
     length(Region, LenRegion),
     first_uncomputed_delta(Any, FirstUncomputedDelta),
-    FirstUncomputed is LenRegion - LenUncomputed + FirstUncomputedDelta,
-    FirstUncomputedForwarded is LenRegion - LenUncomputed + (FirstUncomputedDelta * NLikeAny),
-    FirstUncomputedConstraint in (FirstUncomputed \/ FirstUncomputedForwarded).
+    FirstUncomputed is LenRegion - (LenUncomputed + LenEmpty) + FirstUncomputedDelta,
+    FirstUncomputedWithEmpty is LenRegion - LenUncomputed + FirstUncomputedDelta,
+    FirstUncomputedConstraint in (FirstUncomputed..FirstUncomputedWithEmpty).
 
 partition_task_operands([], AccumIn, AccumOut, Inputs, Outputs) :-
     Inputs = AccumIn, Outputs = AccumOut, !.
@@ -242,11 +225,10 @@ constrain_from_future_input(LoopNo, FirstUncomputeds, Op) :-
 
 fusion_dependency_check(_, [], _, _).
 fusion_dependency_check(N, [Region|Future], LastComputeds, FirstUncomputeds) :-
-    ((is_forwarding_noop(Region), !);
-     (partition_task_operands(Region.past, PastIns, _),
-      partition_task_operands(Region.future, FutureIns, _),
-      maplist(constrain_from_past_input(N, LastComputeds), PastIns),
-      maplist(constrain_from_future_input(N, FirstUncomputeds), FutureIns), !)),
+    partition_task_operands(Region.past, PastIns, _),
+    partition_task_operands(Region.future, FutureIns, _),
+    maplist(constrain_from_past_input(N, LastComputeds), PastIns),
+    maplist(constrain_from_future_input(N, FirstUncomputeds), FutureIns), !,
     NewN is N + 1,
     fusion_dependency_check(NewN, Future, LastComputeds, FirstUncomputeds).
 fusion_dependency_check(Region, LastComputeds, FirstUncomputeds) :-
@@ -413,18 +395,6 @@ add_empty_regions_([Id|Ids], PME, NewPME) :-
 add_empty_regions(Ids, PMEs, NewPMEs) :-
     maplist(add_empty_regions_(Ids), PMEs, NewPMEs).
 
-add_forwarding_noops_([], PME, NewPME) :- PME = NewPME.
-add_forwarding_noops_([Id|Ids], PME, NewPME) :-
-    (exists_one(=(Id-_), PME), !,
-     add_forwarding_noops_(Ids, PME, NewPME));
-    add_forwarding_noops_(Ids,
-                          [(Id-[noop([in(Id)], [during(Id, 0)]),
-                                noop([during(Id, 0)], [out(Id)])])|PME],
-                          NewPME).
-
-add_forwarding_noops(Ids, PMEs, NewPMEs) :-
-    maplist(add_forwarding_noops_(Ids), PMEs, NewPMEs).
-
 sylvester :-
     test_pme([bl-[op([in(bl)], [out(bl)])],
               tl-[fn([in(tl), out(bl)], [during(tl, 0)]),
@@ -479,9 +449,7 @@ inv_true_dep :-
           r_bl-[fn([any([in(l_bl), during(r_bl, 0, b)]), out(r_tl)], [during(r_bl, 0, a)]),
              fn([any([in(l_bl), during(r_bl, 0, a)]), out(l_br)], [during(r_bl, 0, b)])],
           r_br-[op([in(l_br)], [out(r_br)])],
-          y_t-[noop([in(y_t)], [during(y_t, 0)]), noop([during(y_t, 0)], [out(y_t)])],
-          y_b-[noop([in(y_b)], [during(y_b, 0)]), noop([during(y_b, 0)], [out(y_b)])],
-          x_t-[], x_b-[],
+          y_t-[], y_b-[], x_t-[], x_b-[],
           l_tl-[], l_bl-[], l_br-[]],
 
          [y_t-[op([in(r_tl), in(x_t), in(y_t)], [out(y_t)])],

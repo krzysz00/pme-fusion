@@ -1,4 +1,7 @@
+#!/usr/bin/env swipl
 :- use_module(pme_fusion).
+
+:- initialization(main, main).
 
 lu_pme(Out) :-
     Out = [ltl-[op([in(atl)], [out(ltl)])],
@@ -50,7 +53,16 @@ lower_tri_inv :-
 
 lu_then_invert :-
     lu_pme(LU_PME), lower_tri_inv_pme(LInv_PME), upper_tri_inv_pme(UInv_PME),
-    trtrmm_pme(TrTrMM_PME),
     add_empty_regions([atl, atr, abl, abr, ltl, lbl, lbr, utl, utr, ubr],
                          [LU_PME, LInv_PME, UInv_PME], PMEs),
     test_pmes_dedup(PMEs).
+
+general_inverse :-
+    lu_pme(LU_PME),
+    lower_tri_inv_pme(LInv_PME), upper_tri_inv_pme(UInv_PME),
+    trtrmm_pme(TrTrMM_PME),
+    add_empty_regions([atl, atr, abl, abr, ltl, lbl, lbr, utl, utr, ubr],
+                         [LU_PME, LInv_PME, UInv_PME, TrTrMM_PME], PMEs),
+    test_pmes_dedup(PMEs).
+
+main :- general_inverse.
