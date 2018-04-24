@@ -7,7 +7,8 @@ lu_pme(Out) :-
            utr-[fn([in(abr), out(ltl)], [out(utr)])],
            abr-[fn([in(abr), out(lbl), out(utr)], [during(abr, 0)])],
            lbr-[op([during(abr, 0)], [out(lbr)])],
-           ubr-[noop([out(lbr)], [out(ubr)])]].
+           ubr-[noop([out(lbr)], [out(ubr)])],
+           atl-[], atr-[], abl-[]].
 
 lower_tri_inv_pme(Out) :-
     Out = [ltl-[op([in(ltl)], [out(ltl)])],
@@ -29,6 +30,13 @@ upper_tri_inv_pme(Out) :-
                    [during(utr, 0, b)])],
            ubr-[op([in(ubr)], [out(ubr)])]].
 
+trtrmm_pme(Out) :-
+    Out = [atl-[op([in(ltl), in(utl)], [out(atl)])],
+           atr-[op([in(ltl), in(utr)], [out(atr)])],
+           abl-[op([in(lbl), in(utl)], [out(abl)])],
+           abr-[op([in(lbl), in(utr)], [during(abr, 0, a)]),
+                op([in(lbr), in(ubr)], [during(abr, 0, b)])]].
+
 lu_factorization :-
     lu_pme(LU_PME),
     add_empty_regions(
@@ -42,6 +50,7 @@ lower_tri_inv :-
 
 lu_then_invert :-
     lu_pme(LU_PME), lower_tri_inv_pme(LInv_PME), upper_tri_inv_pme(UInv_PME),
+    trtrmm_pme(TrTrMM_PME),
     add_empty_regions([atl, atr, abl, abr, ltl, lbl, lbr, utl, utr, ubr],
-                      [LU_PME, LInv_PME, UInv_PME], PMEs),
+                         [LU_PME, LInv_PME, UInv_PME], PMEs),
     test_pmes_dedup(PMEs).
