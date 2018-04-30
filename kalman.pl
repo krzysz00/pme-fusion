@@ -14,10 +14,10 @@ gemv_part_mn_pme(OutT, MatT, InT,
     Out = [OutT-[op([in(InT), in(InB), in(MatT), in(OutT)], [out(OutT)])],
            OutB-[op([in(InT), in(InB), in(MatB), in(OutB)], [out(OutB)])]].
 
-gemm_part_m_pme(CT, A, BT,
-                CB,    BB, Out) :-
-    Out = [CT-[op([in(A), in(BT), in(CT)], [out(CT)])],
-           CB-[op([in(A), in(BB), in(CB)], [out(CB)])]].
+gemm_part_m_pme(CT, AT, B,
+                CB, AB,   Out) :-
+    Out = [CT-[op([in(B), in(AT), in(CT)], [out(CT)])],
+           CB-[op([in(B), in(AB), in(CB)], [out(CB)])]].
 
 gemm_part_mn_sym_comp_ut_pme(CTL,      AT, BL, BR,
                              CBL, CBR, AB,        Out) :-
@@ -39,7 +39,11 @@ vlower_tri_solve_pme(Atl,      Xt, Bt,
            Xb-[fn([in(Abl), in(Bb), out(Xt)], [during(Xb, 0)]),
                op([in(Abr), during(Xb, 0)], [out(Xb)])]].
 
-
+vupper_tri_solve_pme(Atl, Atr, Xt, Bt,
+                          Abr, Xb, Bb, Out) :-
+    Out = [Xb-[op([in(Abr), in(Bb)], [out(Xb)])],
+           Xt-[fn([in(Atr), in(Bt), out(Xb)], [during(Xt, 0)]),
+               op([in(Atl), during(Xt, 0)], [out(Xt)])]].
 
 %% Steps: computation of y and Y is ignored because it's better to have it than to try to fuse with it
 %% We can fuse v0, the Chol, and the solve - also M1 (M2), M3, and the solve for M4
@@ -48,8 +52,8 @@ vlower_tri_solve_pme(Atl,      Xt, Bt,
 kalman_relevant :-
     gemm_part_m_pme(tt, ht, p,
                     tb, hb, T_PME),
-    gemv_part_mn_pme(vt, ht, xt,
-                     vb, hb, xb, V_mul_PME),
+    gemm_part_m_pme(vt, ht, x,
+                    vb, hb, V_mul_PME),
     gemm_part_mn_sym_comp_ut_pme(ltl,      tt, ht, hb,
                                  lbl, lbr, tb,        L_mul_PME),
     cholesky_pme(ltl,      ltl,
@@ -59,12 +63,37 @@ kalman_relevant :-
     vlower_tri_solve_pme(ltl,      vt, vt,
                          lbl, lbr, vb, vb, Solve_v_PME),
 
-    add_empty_regions([tt, tb, ht, hb, p, xt, xb,
+    add_empty_regions([tt, tb, ht, hb, p, x,
                        ltl, lbl, lbr,
                        mt, mb, vt, vb],
                       [T_PME, V_mul_PME, L_mul_PME,
                        Chol_PME, Solve_M_PME, Solve_v_PME], PMEs),
     test_pmes(PMEs).
 
+kalman_no_fusion :-
+    gemm_part_m_pme(tt, ht, p,
+                    tb, hb, T_PME),
+    gemm_part_m_pme(vt, ht, x,
+                    vb, hb, V_mul_PME),
+    gemm_part_mn_sym_comp_ut_pme(ltl,      tt, ht, hb,
+                                 lbl, lbr, tb,        L_mul_PME),
+    cholesky_pme(ltl,      ltl,
+                 lbl, lbr, lbl, lbr, Chol_PME),
+    vlower_tri_solve_pme(ltl,      mt, tt,
+                         lbl, lbr, mb, tb, Solve_M_PME),
+    vlower_tri_solve_pme(ltl,      vt, vt,
+                         lbl, lbr, vb, vb, Solve_v_PME),
+    vupper_tri_solve_pme(ltl, lbl, mt, mt,
+                              lbr, mb, mb, Solve_M2_PME),
+    vupper_tri_solve_pme(ltl, lbl, vt, vt,
+                              lbr, vb, vb, Solve_v2_PME),
+
+    add_empty_regions([tt, tb, ht, hb, p, x,
+                       ltl, lbl, lbr,
+                       mt, mb, vt, vb],
+                      [T_PME, V_mul_PME, L_mul_PME,
+                       Chol_PME, Solve_M_PME, Solve_v_PME,
+                       Solve_M2_PME, Solve_v2_PME], PMEs),
+    test_pmes(PMEs).
 
 %% Upper triangular solve must go bottom to top, so everything dies after this

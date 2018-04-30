@@ -1,0 +1,93 @@
+\documentclass[12pt,letterpaper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{mathtools,amsthm}
+\DeclarePairedDelimiter\ceil{\lceil}{\rceil}
+\DeclarePairedDelimiter\floor{\lfloor}{\rfloor}
+
+\newcommand*{\mycite}[1]{~\cite{#1}}
+
+\usepackage{hyperref}
+\usepackage{biblatex}
+
+\usepackage{setspace}
+\singlespacing{}
+%\doublespacing{}
+
+\input{flatex}
+
+\newcommand*{\opf}{\mathcal{F}}
+
+\title{PMEs for $HPH^T$ through the lower triangular solves, $L$ uses top right quadrant}
+\author{Krzysztof Drewniak}
+
+\begin{document}
+\maketitle{}
+$L$, $T$, $M$, and $v$ are temporary variables.
+
+$H$, $x$, $P$, and $z$ are fully computed inputs/constants.
+
+Hats on variables indicate initial inputs to that loop, and are omitted where they're not needed to ensure clarity.
+
+In all cases, partition:
+\begin{align*}
+  H &\rightarrow \FlaTwoByOne{H_T}{H_B}\\
+  x &\rightarrow \FlaTwoByOne{x_T}{x_B}\\
+  z &\to \FlaTwoByOne{z_T}{z_B}
+\end{align*}
+
+In all of these algorithm, the partitioning lines move from top-left to bottom-right.
+For operands that don't have (or are partitioned as not having) lefts and rights, the left-to-right movement is irrelevant.
+
+\paragraph{Algorithm 1}
+\begin{align*}
+  \FlaTwoByOne{T_T = H_TP}
+              {T_B = \hat{T}_B}\\
+  \FlaTwoByOne{v_T = z_T - H_Tx}
+              {v_B = \hat{T}_B}\\
+  \FlaTwoByTwo{L_{TL} = T_TH^T_T}{*}
+              {L_{BL} = \hat{L}_{BL}}{L_{BR} = \hat{L}_{BR}}\\
+  \FlaTwoByTwo{L_{TL} = \textsc{CHOL}(\hat{L}_{TL})}{*}
+              {L_{BL} = \hat{L}_{BL}}{L_{BR} = \hat{L}_{BR}}\\
+  \FlaTwoByOne{M_T = \textsc{TRSM}(L_{TL}, T_T)}
+              {M_B = \hat{M}_B}\\
+  \FlaTwoByOne{v_T = \textsc{TRSV}(L_{TL}, \hat{v}_T)}
+              {v_B = \hat{v}_B}\\
+\end{align*}
+
+\paragraph{Algorithm 2}
+This is fundamentally a minor variation on algorithm 1 that computes $L$ more greedily without using it more.
+
+\begin{align*}
+  \FlaTwoByOne{T_T = H_TP}
+              {T_B = \hat{T}_B}\\
+  \FlaTwoByOne{v_T = z_T - H_Tx}
+              {v_B = \hat{T}_B}\\
+  \FlaTwoByTwo{L_{TL} = T_TH^T_T}{*}
+              {L_{BL}^T = T_TH_B^T}{L_{BR} = \hat{L}_{BR}}\\
+  \FlaTwoByTwo{L_{TL} = \textsc{CHOL}(\hat{L}_{TL})}{*}
+              {L_{BL} = \hat{L}_{BL}}{L_{BR} = \hat{L}_{BR}}\\
+  \FlaTwoByOne{M_T = \textsc{TRSM}(L_{TL}, T_T)}
+              {M_B = \hat{M}_B}\\
+  \FlaTwoByOne{v_T = \textsc{TRSV}(L_{TL}, \hat{v}_T)}
+              {v_B = \hat{v}_B}\\
+\end{align*}
+
+\paragraph{Algorithm 3}
+This is algorithm 2, except it takes advantage of the work done on $L$.
+
+\begin{align*}
+  \FlaTwoByOne{T_T = H_TP}
+              {T_B = \hat{T}_B}\\
+  \FlaTwoByOne{v_T = z_T - H_Tx}
+              {v_B = \hat{T}_B}\\
+  \FlaTwoByTwo{L_{TL} = T_TH^T_T}{*}
+              {L_{BL}^T = T_TH_B^T}{L_{BR} = \hat{L}_{BR}}\\
+  \FlaTwoByTwo{L_{TL} = \textsc{CHOL}(\hat{L}_{TL})}{*}
+              {L_{BL} = \textsc{TRSM}(L_{TL}, \hat{L}_{BL})}{L_{BR} = \hat{L}_{BR}}\\
+  \FlaTwoByOne{M_T = \textsc{TRSM}(L_{TL}, T_T)}
+              {M_B = \hat{M}_B}\\
+  \FlaTwoByOne{v_T = \textsc{TRSV}(L_{TL}, \hat{v}_T)}
+              {v_B = \hat{v}_B}\\
+\end{align*}
+\end{document}
