@@ -121,22 +121,22 @@ transpose_invariants_([Region|Others], Accum, Out) :-
     put_assoc(Id, Accum, [Region|Past], NewAccum),
     transpose_invariants_(Others, NewAccum, Out).
 
-transpose_invariants([], Regions, Out) :-
-    map_assoc(reverse, Regions, Out), !.
-transpose_invariants([Invariant|Future], Regions, Out) :-
-    transpose_invariants_(Invariant, Regions, NewRegions), !,
-    transpose_invariants(Future, NewRegions, Out).
+transpose_invariants([], StripAccum, Out) :-
+    map_assoc(reverse, StripAccum, Out), !.
+transpose_invariants([Invariant|Future], StripAccum, Out) :-
+    transpose_invariants_(Invariant, StripAccum, NewAccum), !,
+    transpose_invariants(Future, NewAccum, Out).
 
-transpose_invariants(Invariants, Regions) :-
+transpose_invariants(Invariants, Strips) :-
     empty_assoc(Accumulator),
-    transpose_invariants(Invariants, Accumulator, Regions).
+    transpose_invariants(Invariants, Accumulator, Strips).
 
-to_region_length_var(Region, Out) :-
-    length(Region, Max),
+to_strip_length_var(Strip, Out) :-
+    length(Strip, Max),
     Out in -1..Max, !.
 
-to_region_length_vars(Regions, Out) :-
-    map_assoc(to_region_length_var, Regions, Out), !.
+to_strip_length_vars(Strips, Out) :-
+    map_assoc(to_strip_length_var, Strips, Out), !.
 
 last_computed_delta(AnyRegion, Delta) :-
     is_computed(AnyRegion) -> (Delta = 1); (Delta = 0).
@@ -155,8 +155,8 @@ extract_empty_prefix(MaybeUncomp, Emptys, Uncomputed) :-
     extract_empty_prefix(MaybeUncomp, [], Emptys, Uncomputed).
 
 
-computable_order(Region, LastComputeds, FirstUncomputeds) :-
-    append(Computed, [Any|EmptyAndUncomputed], Region),
+computable_order(Strip, LastComputeds, FirstUncomputeds) :-
+    append(Computed, [Any|EmptyAndUncomputed], Strip),
     extract_empty_prefix(EmptyAndUncomputed, Empty, Uncomputed),
     maplist(is_computed, Computed),
     maplist(is_uncomputed, Uncomputed),
@@ -181,10 +181,10 @@ computable_order(Region, LastComputeds, FirstUncomputeds) :-
 
     get_assoc(Id, FirstUncomputeds, FirstUncomputedConstraint),
     length(Uncomputed, LenUncomputed),
-    length(Region, LenRegion),
+    length(Strip, LenStrip),
     first_uncomputed_delta(Any, FirstUncomputedDelta),
-    FirstUncomputed is LenRegion - (LenUncomputed + LenEmpty) + FirstUncomputedDelta,
-    FirstUncomputedWithEmpty is LenRegion - LenUncomputed + FirstUncomputedDelta,
+    FirstUncomputed is LenStrip - (LenUncomputed + LenEmpty) + FirstUncomputedDelta,
+    FirstUncomputedWithEmpty is LenStrip - LenUncomputed + FirstUncomputedDelta,
     FirstUncomputedConstraint in (FirstUncomputed..FirstUncomputedWithEmpty).
 
 partition_task_operands([], AccumIn, AccumOut, Inputs, Outputs) :-
@@ -234,14 +234,14 @@ fusion_dependency_check(N, [Region|Future], LastComputeds, FirstUncomputeds) :-
 fusion_dependency_check(Region, LastComputeds, FirstUncomputeds) :-
     fusion_dependency_check(0, Region, LastComputeds, FirstUncomputeds).
 
-fusable_region(LastComputeds, FirstUncomputeds, Region) :-
-    computable_order(Region, LastComputeds, FirstUncomputeds),
-    fusion_dependency_check(Region, LastComputeds, FirstUncomputeds).
+fusable_strip(LastComputeds, FirstUncomputeds, Strip) :-
+    computable_order(Strip, LastComputeds, FirstUncomputeds),
+    fusion_dependency_check(Strip, LastComputeds, FirstUncomputeds).
 
-fusable(Regions) :-
-    to_region_length_vars(Regions, LastComputeds),
-    to_region_length_vars(Regions, FirstUncomputeds),
-    map_assoc(fusable_region(LastComputeds, FirstUncomputeds), Regions).
+fusable(Strips) :-
+    to_strip_length_vars(Strips, LastComputeds),
+    to_strip_length_vars(Strips, FirstUncomputeds),
+    map_assoc(fusable_strip(LastComputeds, FirstUncomputeds), Strips).
 
 region_with_id(_, [], _) :- fail.
 region_with_id(Id, [R|Tail], Region) :-
@@ -310,23 +310,23 @@ not_after(during(X, M), during(X, N, _)) :- M =:= N, !.
 not_after(during(X, M, A), during(X, N, B)) :- M =:= N, A == B, !.
 not_after(X, Y) :- before(X, Y).
 
-dependencies_preserved(Regions) :-
-    regions_to_operands(Regions, PastIns, PastOuts, FutureIns, FutureOuts),
+dependencies_preserved(Invariant) :-
+    regions_to_operands(Invariant, PastIns, PastOuts, FutureIns, FutureOuts),
     %% For independent iterations, replace next statement with
     %% maplist2(before, PastOuts, FutureIns),
     maplist2(not_after, PastOuts, FutureIns),
     maplist2(before, PastIns, FutureOuts).
 
-valid_loop_invariant(Regions) :-
+valid_loop_invariant(Invariant) :-
     %% Uncomment below to restrict to possible rank-k updates
-    %% might_have_rank_k_update(Regions),
-    regions_make_progress(Regions),
-    no_floating_noops(Regions),
-    dependencies_preserved(Regions).
+    %% might_have_rank_k_update(Invariant),
+    regions_make_progress(Invariant),
+    no_floating_noops(Invariant),
+    dependencies_preserved(Invariant).
 
 fused_invariants(Invariants) :-
-    transpose_invariants(Invariants, Regions),
-    fusable(Regions),
+    transpose_invariants(Invariants, Strips),
+    fusable(Strips),
     maplist(valid_loop_invariant, Invariants).
 
 loop_invariant(Invariant) :-
@@ -386,14 +386,14 @@ test_pmes_dedup(PMEs) :-
     maplist(print_invariants_sep, Invariants),
     format("~d results~n~d invariants", [NumResults, NumInvariants]).
 
-add_empty_regions_([], PME, NewPME) :- PME = NewPME.
-add_empty_regions_([Id|Ids], PME, NewPME) :-
-    (exists_one(=(Id-_), PME), !,
-     add_empty_regions_(Ids, PME, NewPME));
-    add_empty_regions_(Ids, [Id-[]|PME], NewPME).
+add_empty_regions_([], Invariant, NewInvariant) :- Invariant = NewInvariant.
+add_empty_regions_([Id|Ids], Invariant, NewInvariant) :-
+    (exists_one(=(Id-_), Invariant), !,
+     add_empty_regions_(Ids, Invariant, NewInvariant));
+    add_empty_regions_(Ids, [Id-[]|Invariant], NewInvariant).
 
-add_empty_regions(Ids, PMEs, NewPMEs) :-
-    maplist(add_empty_regions_(Ids), PMEs, NewPMEs).
+add_empty_regions(Ids, Invariants, NewInvariants) :-
+    maplist(add_empty_regions_(Ids), Invariants, NewInvariants).
 
 sylvester :-
     test_pme([bl-[op([in(bl)], [out(bl)])],
