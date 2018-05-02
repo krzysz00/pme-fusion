@@ -11,13 +11,13 @@ gemv_pme(OutT, MatTL, MatTR, InT,
 gemv_part_mn_pme(OutT, MatT, InT,
                  OutB, MatB, InB,
                  Out) :-
-    Out = [OutT-[op([in(InT), in(InB), in(MatT), in(OutT)], [out(OutT)])],
-           OutB-[op([in(InT), in(InB), in(MatB), in(OutB)], [out(OutB)])]].
+    Out = [OutT-[op([in(InT), in(InB), in(MatT)], [out(OutT)])],
+           OutB-[op([in(InT), in(InB), in(MatB)], [out(OutB)])]].
 
 gemm_part_m_pme(CT, AT, B,
                 CB, AB,   Out) :-
-    Out = [CT-[op([in(B), in(AT), in(CT)], [out(CT)])],
-           CB-[op([in(B), in(AB), in(CB)], [out(CB)])]].
+    Out = [CT-[op([in(B), in(AT)], [out(CT)])],
+           CB-[op([in(B), in(AB)], [out(CB)])]].
 
 gemm_part_mn_sym_comp_ut_pme(CTL,      AT, BL, BR,
                              CBL, CBR, AB,        Out) :-
@@ -58,8 +58,8 @@ kalman_relevant :-
                                  lbl, lbr, tb,        L_mul_PME),
     cholesky_pme(ltl,      ltl,
                  lbl, lbr, lbl, lbr, Chol_PME),
-    vlower_tri_solve_pme(ltl,      mt, tt,
-                         lbl, lbr, mb, tb, Solve_M_PME),
+    vlower_tri_solve_pme(ltl,      tt, tt,
+                         lbl, lbr, tb, tb, Solve_M_PME),
     vlower_tri_solve_pme(ltl,      vt, vt,
                          lbl, lbr, vb, vb, Solve_v_PME),
 
