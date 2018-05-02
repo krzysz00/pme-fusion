@@ -3,13 +3,13 @@
           [make_region/5, region_with_tasks/2, region_with_tasks/3,
            make_invariant/2, make_invariants/2,
            fused_invariants/1, loop_invariant/1,
-           test_pme/1, test_pmes/1, test_pmes_dedup/1,
+           print_invariant/1, print_invariants/1,
+           gen_invariant/1, gen_invariants/1, gen_invariants_dedup/1,
+           test_pme/2, test_pmes/2, test_pmes_dedup/2,
            add_empty_regions/3]).
 
 :- use_module(library(assoc)).
 :- use_module(library(clpfd)).
-
-:- initialization(main, main).
 
 meta_predicate exists(1, +, -), exists_one(1, +), exists_one(2, +, +),
                maplist2(2, +, +), maplist2_(2, +, +).
@@ -44,37 +44,57 @@ maplist2_([H|T], L2, Pred) :-
     maplist(call(Pred, H), L2),
     maplist2_(T, L2, Pred).
 
+base_operand(hat(X)) :- atom(X).
+base_operand(during(X, N)) :- atom(X), integer(N).
+base_operand(during(X, N, V)) :- atom(X), integer(N), atom(V).
+base_operand(tilde(X)) :- atom(X).
+
+operand(any(Ops)) :- maplist(base_operand, Ops), !.
+operand(X) :- base_operand(X).
+
 operand_region(any(Ops), Y) :-
     maplist(operand_region, Ops, OpRegionsWithDups),
     sort(OpRegionsWithDups, OpRegions),
     member(Y, OpRegions).
-operand_region(in(X), Y) :- X = Y.
+operand_region(hat(X), Y) :- X = Y.
 operand_region(during(X, _), Y) :- X = Y.
 operand_region(during(X, _, _), Y) :- X = Y.
-operand_region(out(X), Y) :- X = Y.
+operand_region(tilde(X), Y) :- X = Y.
 
-productive_task(fn(_, _)).
-productive_task(op(_, _)).
+productive_task(eq(O, _)) :- base_operand(O).
+productive_task(op_eq(O, _)) :- base_operand(O).
 
-task(noop(_, _)).
+task(comes_with(O, I)) :- base_operand(O), base_operand(I), !.
 task(X) :- productive_task(X).
 
-task_split(noop(X, Y), In, Out) :- X = In, Y = Out.
-task_split(fn(X, Y), In, Out) :- X = In, Y = Out.
-task_split(op(X, Y), In, Out) :- X = In, Y = Out.
+extract_operands([], Accum, Out) :- Out = Accum, !.
 
-task_outputs(noop(_, X), Y) :- X = Y.
-task_outputs(fn(_, X), Y) :- X = Y.
-task_outputs(op(_, X), Y) :- X = Y.
+extract_operands([Term|Terms], Accum, Out) :-
+    extract_term_operands(Term, TermOps),
+    append(TermOps, Accum, NewAccum),
+    extract_operands(Terms, NewAccum, Out), !.
+
+extract_operands(Term, Accum, Out) :-
+    extract_term_operands(Term, TermOps),
+    append(TermOps, Accum, Out).
+
+extract_term_operands(Term, Out) :-
+    operand(Term) -> Out = [Term];
+    compound(Term) -> (compound_name_arguments(Term, _, Args),
+                       extract_operands(Args, [], Out));
+    Out = [].
+
+extract_operands(Term, Out) :- extract_operands(Term, [], Out).
+
+task_split(comes_with(O, I), In, Out) :- In = [I], Out = O.
+task_split(eq(O, I), In, Out) :- extract_operands(I, InOps), In = InOps, Out = O.
+task_split(op_eq(O, I), In, Out) :- extract_operands(I, InOps), In = InOps, Out = O.
 
 has_op(List) :-
-    exists_one(=(op(_, _)), List).
-
-has_fn(List) :-
-    exists_one(=(fn(_, _)), List).
+    exists_one(=(op_eq(_, _)), List).
 
 make_region(Id, Tasks, Past, Future, Reg) :-
-    maplist(task, Tasks),
+    ((maplist(task, Tasks), !); format("Invalid output for assignment in region ~w~n", [Id])),
     Reg = region{id:Id, tasks:Tasks, past:Past, future:Future}.
 
 region_with_tasks(Id, Tasks, Reg) :-
@@ -192,7 +212,7 @@ partition_task_operands([], AccumIn, AccumOut, Inputs, Outputs) :-
 partition_task_operands([Task|Tasks], AccumIn, AccumOut, Inputs, Outputs) :-
     task_split(Task, TaskIn, TaskOut),
     append(TaskIn, AccumIn, NewAccumIn),
-    append(TaskOut, AccumOut, NewAccumOut),
+    NewAccumOut = [TaskOut|AccumOut],
     partition_task_operands(Tasks, NewAccumIn, NewAccumOut, Inputs, Outputs).
 
 partition_task_operands(Tasks, Inputs, Outputs) :-
@@ -257,7 +277,7 @@ regions_make_progress(Regions) :-
     PastReg.id \== FutureReg.id, !.
 
 no_floating_noops(Regions, Region) :-
-    (Region.tasks = [noop([In], [_Out])]) ->
+    (Region.tasks = [comes_with(_Out, In)]) ->
         (operand_region(In, InId),
          ((InId == Region.id, !);
           (region_with_id(InId, Regions, InReg),
@@ -281,12 +301,12 @@ before(any(Ops1), Y) :-
 before(X, any(Ops2)) :-
     !, exists_one(before(X), Ops2).
 % Here we give the exceptions to the assumption of independence
-before(out(X), in(Y)) :-  !, X \== Y.
-before(out(X), during(Y, _)) :- !, X \== Y.
-before(out(X), during(Y, _, _)) :- !, X \== Y.
-before(out(X), out(Y)) :- !, X \== Y.
-before(during(X, _), in(Y)) :- !, X \== Y.
-before(during(X, _, _), in(Y)) :- !, X \== Y.
+before(tilde(X), hat(Y)) :-  !, X \== Y.
+before(tilde(X), during(Y, _)) :- !, X \== Y.
+before(tilde(X), during(Y, _, _)) :- !, X \== Y.
+before(tilde(X), tilde(Y)) :- !, X \== Y.
+before(during(X, _), hat(Y)) :- !, X \== Y.
+before(during(X, _, _), hat(Y)) :- !, X \== Y.
 % These are before if they're on different regions or the first is before the second.
 before(during(X, M), during(Y, N)) :- !, (X \== Y; M < N), !.
 before(during(X, M, _), during(Y, N)) :- !, (X \== Y; M < N), !.
@@ -357,25 +377,29 @@ print_invariants_sep(Invariants) :-
     print_invariants(Invariants),
     format("~n").
 
-test_pme(PME) :-
+test_pme(PME, NInvariants) :-
     findall(Invariant,
             (make_invariant(PME, Invariant),
              loop_invariant(Invariant)),
             Results),
     length(Results, NumResults),
     maplist(print_invariant_sep, Results),
-    format("~d invariants~n", [NumResults]).
+    format("~d invariants~n", [NumResults]),
+    ((NumResults #= NInvariants, !);
+     (format("ERROR: expected ~d invariants~n", [NInvariants]), fail)).
 
-test_pmes(PMEs) :-
+test_pmes(PMEs, NInvariants) :-
     findall(Invariants,
             (make_invariants(PMEs, Invariants),
              fused_invariants(Invariants)),
             Results),
     length(Results, NumResults),
     maplist(print_invariants_sep, Results),
-    format("~d invariants~n", [NumResults]).
+    format("~d invariants~n", [NumResults]),
+    ((NumResults #= NInvariants, !);
+     (format("ERROR: expected ~d invariants~n", [NInvariants]), fail)).
 
-test_pmes_dedup(PMEs) :-
+test_pmes_dedup(PMEs, NInvariants) :-
     findall(Invariants,
             (make_invariants(PMEs, Invariants),
              fused_invariants(Invariants)),
@@ -384,7 +408,13 @@ test_pmes_dedup(PMEs) :-
     sort(Results, Invariants),
     length(Invariants, NumInvariants),
     maplist(print_invariants_sep, Invariants),
-    format("~d results~n~d invariants", [NumResults, NumInvariants]).
+    format("~d results~n~d invariants~n", [NumResults, NumInvariants]),
+    ((NumInvariants #= NInvariants, !);
+     (format("ERROR: expected ~d invariants~n", [NInvariants]), fail)).
+
+gen_invariant(PME) :- test_pme(PME, _).
+gen_invariants(PMEs) :- test_pmes(PMEs, _).
+gen_invariants_dedup(PMEs) :- test_pmes_dedup(PMEs, _).
 
 add_empty_regions_([], Invariant, NewInvariant) :- Invariant = NewInvariant.
 add_empty_regions_([Id|Ids], Invariant, NewInvariant) :-
@@ -394,98 +424,3 @@ add_empty_regions_([Id|Ids], Invariant, NewInvariant) :-
 
 add_empty_regions(Ids, Invariants, NewInvariants) :-
     maplist(add_empty_regions_(Ids), Invariants, NewInvariants).
-
-sylvester :-
-    test_pme([bl-[op([in(bl)], [out(bl)])],
-              tl-[fn([in(tl), out(bl)], [during(tl, 0)]),
-                  op([during(tl, 0)], [out(tl)])],
-              br-[fn([in(br), out(bl)], [during(br, 0)]),
-                  op([during(br, 0)], [out(br)])],
-              tr-[fn([any([in(tr), during(tr, 0, b)]), out(br)], [during(tr, 0, a)]),
-                  fn([any([in(tr), during(tr, 0, a)]), out(tl)], [during(tr, 0, b)]),
-                  op([during(tr, 0, a), during(tr, 0, b)], [out(tr)])]]).
-
-
-cholesky :-
-    test_pme([tl-[op([in(tl)], [out(tl)])],
-              bl-[fn([in(bl), out(tl)], [out(bl)])],
-              br-[fn([in(br), out(bl)], [during(br, 0)]),
-                  op([during(br, 0)], [out(br)])]]).
-
-inverse :-
-    %% NOTE: the in(br) and out(tl) in the bl terms can be any([in(...), out(...)])
-    %% which will ensure generality
-    test_pme([tl-[op([in(tl)], [out(tl)])],
-              bl-[fn([any([in(bl), during(bl, 0, b)]), out(tl)], [during(bl, 0, a)]),
-                  fn([any([in(bl), during(bl, 0, a)]), in(br)], [during(bl, 0, b)])],
-              br-[op([in(br)], [out(br)])]]).
-
-fused_loops() :-
-    test_pmes([[tl-[op([in(tl)], [out(tl)])],
-                bl-[fn([in(bl), out(tl)], [out(bl)])],
-                br-[fn([in(br), out(bl)], [during(br, 0)]),
-                    op([during(br, 0)], [out(br)])]],
-
-               [tl-[op([in(tl)], [out(tl)])],
-                bl-[fn([any([in(bl), during(bl, 0, b)]), out(tl)], [during(bl, 0, a)]),
-                    fn([any([in(bl), during(bl, 0, a)]), in(br)], [during(bl, 0, b)])],
-                br-[op([in(br)], [out(br)])]]]).
-
-fused_loops_ex2() :-
-   test_pmes(
-       [[tl-[op([in(tl)], [out(tl)])],
-         bl-[fn([any([in(bl), during(bl, 0, b)]), out(tl)], [during(bl, 0, a)]),
-             fn([any([in(bl), during(bl, 0, a)]), in(br)], [during(bl, 0, b)])],
-         br-[op([in(br)], [out(br)])]],
-
-        [tl-[op([in(tl)], [during(tl, 0)]),
-             fn([in(bl), during(tl, 0)], [out(tl)])],
-         bl-[fn([in(br), in(bl)], [out(bl)])],
-         br-[op([in(br)], [out(br)])]]]).
-
-inv_true_dep :-
-    test_pmes_dedup(
-        [[r_tl-[op([out(l_tl)], [out(r_tl)])],
-          r_bl-[fn([any([in(l_bl), during(r_bl, 0, b)]), out(r_tl)], [during(r_bl, 0, a)]),
-             fn([any([in(l_bl), during(r_bl, 0, a)]), out(l_br)], [during(r_bl, 0, b)])],
-          r_br-[op([in(l_br)], [out(r_br)])],
-          y_t-[], y_b-[], x_t-[], x_b-[],
-          l_tl-[], l_bl-[], l_br-[]],
-
-         [y_t-[op([in(r_tl), in(x_t), in(y_t)], [out(y_t)])],
-          y_b-[op([in(r_bl), in(x_t), any([in(y_b), during(y_b, 0, b)])], [during(y_b, 0, a)]),
-               op([in(r_br), in(x_b), any([in(y_b), during(y_b, 0, a)])], [during(y_b, 0, b)])],
-          x_t-[], x_b-[], r_tl-[], r_bl-[], r_br-[],
-          l_tl-[], l_bl-[], l_br-[]]]).
-
-inv_anti_dep :-
-    test_pmes_dedup(
-        [[y_t-[op([out(l_tl), out(x_t), in(y_t)], [out(y_t)])],
-          y_b-[op([out(l_bl), out(x_t), any([in(y_b), during(y_b, 0, b)])], [during(y_b, 0, a)]),
-               op([out(l_br), out(x_b), any([in(y_b), during(y_b, 0, a)])], [during(y_b, 0, b)])],
-          x_t-[], x_b-[], l_tl-[], l_bl-[], l_br-[]],
-
-         [l_tl-[op([in(l_tl)], [out(l_tl)])],
-          l_bl-[fn([any([in(l_bl), during(l_bl, 0, b)]), out(l_tl)], [during(l_bl, 0, a)]),
-                fn([any([in(l_bl), during(l_bl, 0, a)]), in(l_br)], [during(l_bl, 0, b)])],
-          l_br-[op([in(l_br)], [out(l_br)])],
-          y_t-[], y_b-[], x_t-[], x_b-[]]]).
-
-three_fused_loops() :-
-    test_pmes(
-        [[tl-[op([in(tl)], [out(tl)])],
-          bl-[fn([in(bl), out(tl)], [out(bl)])],
-          br-[fn([in(br), out(bl)], [during(br, 0)]),
-              op([during(br, 0)], [out(br)])]],
-
-         [tl-[op([in(tl)], [out(tl)])],
-          bl-[fn([any([in(bl), during(bl, 0, b)]), out(tl)], [during(bl, 0, a)]),
-              fn([any([in(bl), during(bl, 0, a)]), in(br)], [during(bl, 0, b)])],
-          br-[op([in(br)], [out(br)])]],
-
-         [tl-[op([in(tl)], [during(tl, 0)]),
-              fn([in(bl), during(tl, 0)], [out(tl)])],
-          bl-[fn([in(br), in(bl)], [out(bl)])],
-          br-[op([in(br)], [out(br)])]]]).
-
-main :- three_fused_loops.
