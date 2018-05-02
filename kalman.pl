@@ -1,49 +1,39 @@
+#!/usr/bin/env swipl
 :- use_module(pme_fusion).
 
-gemv_pme(OutT, MatTL, MatTR, InT,
-         OutB, MatBL, MatBR, InB,
-         Out) :-
-    Out = [OutT-[op([in(InT), in(MatTL), any([in(OutT), during(OutT, 0, b)])], [during(OutT, 0, a)]),
-                 op([in(InB), in(MatTR), any([in(OutT), during(OutT, 0, a)])], [during(OutT, 0, b)])],
-           OutB-[op([in(InT), in(MatBL), any([in(OutB), during(OutB, 0, b)])], [during(OutB, 0, a)]),
-                 op([in(InB), in(MatBR), any([in(OutB), during(OutB, 0, a)])], [during(OutB, 0, b)])]].
+:- consult(pmes).
+
+:- initialization(main, main).
 
 gemv_part_mn_pme(OutT, MatT, InT,
                  OutB, MatB, InB,
-                 Out) :-
-    Out = [OutT-[op([in(InT), in(InB), in(MatT)], [out(OutT)])],
-           OutB-[op([in(InT), in(InB), in(MatB)], [out(OutB)])]].
+                 Ret) :-
+    Ret = [OutT-[op_eq(tilde(OutT), mul([hat(InT), hat(InB)], hat(MatT)))],
+           OutT-[op_eq(tilde(OutB), mul([hat(InT), hat(InB)], hat(MatB)))]].
 
 gemm_part_m_pme(CT, AT, B,
-                CB, AB,   Out) :-
-    Out = [CT-[op([in(B), in(AT)], [out(CT)])],
-           CB-[op([in(B), in(AB)], [out(CB)])]].
+                CB, AB,   Ret) :-
+    Ret = [CT-[op_eq(tilde(CT), mul(hat(AT), hat(B)))],
+           CB-[op_eq(tilde(CB), mul(hat(AB), hat(B)))]].
 
 gemm_part_mn_sym_comp_ut_pme(CTL,      AT, BL, BR,
-                             CBL, CBR, AB,        Out) :-
-    Out = [CTL-[op([in(AT), in(BL)], [out(CTL)])],
-           CBL-[op([in(AT), in(BR)], [out(CBL)])],
-%           CBL-[op([in(AB), in(BL)], [out(CBL)])],
-           CBR-[op([in(AB), in(BR)], [out(CBR)])]].
-
-cholesky_pme(InTl,       OutTl,
-             InBl, InBr, OutBl, OutBr, Out) :-
-    Out = [OutTl-[op([in(InTl)], [out(OutTl)])],
-           OutBl-[fn([in(InBl), out(OutTl)], [out(OutBl)])],
-           OutBr-[fn([in(InBr), out(OutBl)], [during(OutBr, 0)]),
-                  op([during(OutBr, 0)], [out(OutBr)])]].
+                             CBL, CBR, AB,        Ret) :-
+    Ret = [CTL-[op_eq(tilde(CTL), mul(hat(AT), hat(BL)))],
+           CBL-[op_eq(tilde(CBL), mul(hat(AT), hat(BR)))],
+           % CBL-[op_eq(tilde(CBL), mul(hat(AB), hat(BL)))],
+           CBR-[op_eq(tilde(CBR), mul(hat(AB), hat(BR)))]].
 
 vlower_tri_solve_pme(Atl,      Xt, Bt,
-                     Abl, Abr, Xb, Bb, Out) :-
-    Out = [Xt-[op([in(Atl), in(Bt)], [out(Xt)])],
-           Xb-[fn([in(Abl), in(Bb), out(Xt)], [during(Xb, 0)]),
-               op([in(Abr), during(Xb, 0)], [out(Xb)])]].
+                     Abl, Abr, Xb, Bb, Ret) :-
+    Ret = [Xt-[op_eq(tilde(Xt), trslv(hat(Atl), hat(Bt)))],
+           Xb-[eq(during(Xb, 0), sub(hat(Bb), mul(hat(Abl), tilde(Xt)))),
+               op_eq(tilde(Xb), trslv(hat(Abr), during(Xb, 0)))]].
 
 vupper_tri_solve_pme(Atl, Atr, Xt, Bt,
-                          Abr, Xb, Bb, Out) :-
-    Out = [Xb-[op([in(Abr), in(Bb)], [out(Xb)])],
-           Xt-[fn([in(Atr), in(Bt), out(Xb)], [during(Xt, 0)]),
-               op([in(Atl), during(Xt, 0)], [out(Xt)])]].
+                          Abr, Xb, Bb, Ret) :-
+    Ret = [Xb-[op_eq(tilde(Xb), trslv(hat(Abr), hat(Bb)))],
+           Xb-[eq(during(Xt, 0), sub(hat(Bt), mul(hat(Atr), tilde(Xt)))),
+               op_eq(tilde(Xt), trslv(hat(Atl), during(Xt, 0)))]].
 
 %% Steps: computation of y and Y is ignored because it's better to have it than to try to fuse with it
 %% We can fuse v0, the Chol, and the solve - also M1 (M2), M3, and the solve for M4
@@ -68,7 +58,7 @@ kalman_relevant :-
                        mt, mb, vt, vb],
                       [T_PME, V_mul_PME, L_mul_PME,
                        Chol_PME, Solve_M_PME, Solve_v_PME], PMEs),
-    test_pmes(PMEs).
+    gen_invariants(PMEs).
 
 kalman_no_fusion :-
     gemm_part_m_pme(tt, ht, p,
@@ -94,6 +84,6 @@ kalman_no_fusion :-
                       [T_PME, V_mul_PME, L_mul_PME,
                        Chol_PME, Solve_M_PME, Solve_v_PME,
                        Solve_M2_PME, Solve_v2_PME], PMEs),
-    test_pmes(PMEs).
+    gen_invariants(PMEs).
 
 %% Upper triangular solve must go bottom to top, so everything dies after this

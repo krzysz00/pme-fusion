@@ -94,7 +94,8 @@ has_op(List) :-
     exists_one(=(op_eq(_, _)), List).
 
 make_region(Id, Tasks, Past, Future, Reg) :-
-    ((maplist(task, Tasks), !); format("Invalid output for assignment in region ~w~n", [Id])),
+    ((maplist(task, Tasks), !);
+     format("Invalid output for assignment in region ~w (tasks ~w)~n", [Id, Tasks])),
     Reg = region{id:Id, tasks:Tasks, past:Past, future:Future}.
 
 region_with_tasks(Id, Tasks, Reg) :-

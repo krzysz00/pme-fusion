@@ -14,7 +14,7 @@ cholesky :-
 
 trinv :-
     format("Triangular inverse (mostly TL->BR):~n"),
-    trinv_l_pme(ltl,      ltl,
+    trinv_pme(ltl,      ltl,
                 lbl, lbr, lbl, lbr, PME),
     test_pme(PME, 5).
 
@@ -22,7 +22,7 @@ chol_trinv :-
     format("CHOL + TrInv:~n"),
     cholesky_pme(ltl,      ltl,
                  lbl, lbr, lbl, lbr, Chol_PME),
-    trinv_l_pme(ltl,      ltl,
+    trinv_pme(ltl,      ltl,
                 lbl, lbr, lbl, lbr, Inv_PME),
     test_pmes([Chol_PME, Inv_PME], 3).
 
@@ -30,7 +30,7 @@ symm_inv :-
     format("CHOL + TrInv + TrTrMM (symmetric inverse):~n"),
     cholesky_pme(ltl,      ltl,
                  lbl, lbr, lbl, lbr, Chol_PME),
-    trinv_l_pme(ltl,      ltl,
+    trinv_pme(ltl,      ltl,
                 lbl, lbr, lbl, lbr, Inv_PME),
     l_transpose_l_times_l_pme(ltl,
                               lbl, lbr, Mul_PME),
@@ -54,7 +54,7 @@ sylvester :-
 
 true_dependency :-
     format("True dependency check (Trinv + Trmv):~n"),
-    trinv_l_pme(ltl,      rtl,
+    trinv_pme(ltl,      rtl,
                 lbl, lbr, rbl, rbr, Inv_PME),
     trmv_l_pme(yt, rtl,      xt,
                yb, rbl, rbr, xb, Mul_PME),
@@ -66,7 +66,7 @@ anti_dependency :-
     format("Anti-dependency check (Trmv + Trinv):~n"),
     trmv_l_pme(yt, ltl,      xt,
                yb, lbl, lbr, xb, Mul_PME),
-    trinv_l_pme(ltl,      ltl,
+    trinv_pme(ltl,      ltl,
                 lbl, lbr, lbl, lbr, Inv_PME),
     add_empty_regions([ltl, lbl, lbr, xt, xb, yt, yb],
                       [Mul_PME, Inv_PME], PMEs),
