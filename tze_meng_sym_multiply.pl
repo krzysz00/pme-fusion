@@ -1,7 +1,7 @@
 #!/usr/bin/env swipl
 :- use_module(pme_fusion).
 
-:- consult(pmes).
+:- consult(common_task_lists).
 
 :- initialization(main, main).
 
@@ -16,14 +16,14 @@ big_mul_clause(M, A, B, C, D, E, F, G, H, FirstIsOp, Out) :-
                                     add(mul(E, F), mul(G, H)))),
     Out = [Task1, Task2].
 
-op_1_pme(Out) :-
+op_1_tasks(Out) :-
     big_mul_clause(c_tl, a_tl, m_tl, m_tl, a_tl,
                    a_tr, tr(m_tr), m_tr, tr(a_tr), true, CTl),
     big_mul_clause(c_tr, a_tl, m_tr, m_tl, tr(a_tr),
                    a_tr, m_br, tr(m_tr), a_br, false, CTr),
     big_mul_clause(c_br, a_br, m_br, m_br, a_br,
                    tr(a_tr), m_tr, tr(m_tr), a_tr, true, CBr),
-    Out = [c_tl-CTl, c_tr-CTr, c_br-CBr].
+    flatten([CTl, CTr, CBr], Out).
 
 %% PME section for M -= AB - CD
 %% Everything but M is a hatless constant
@@ -36,15 +36,15 @@ mul_clause(M, A, B, C, D, FirstIsOp, Out) :-
                                     mul(C, D))),
     Out = [Task1, Task2].
 
-op_2_pme(Out) :-
+op_2_tasks(Out) :-
     mul_clause(c_tl, m_tl, m_tl, m_tr, tr(m_tr), true, CTl),
     mul_clause(c_tr, m_tl, m_tr, m_tr, m_br, false, CTr),
     mul_clause(c_br, m_br, m_br, tr(m_tr), m_tr, true, CBr),
-    Out = [c_tl-CTl, c_tr-CTr, c_br-CBr].
+    flatten([CTl, CTr, CBr], Out).
 
 solve :-
-    op_1_pme(Op1),
-    op_2_pme(Op2),
+    op_1_tasks(Op1),
+    op_2_tasks(Op2),
     gen_invariants([Op1, Op2]).
 
 leaves_dont_contain(Atom, Term) :-
@@ -57,10 +57,10 @@ past_doesnt_contain(Atom, Region) :-
     leaves_dont_contain(Atom, Region.past).
 
 solve_no_br :-
-    op_1_pme(Op1),
-    op_2_pme(Op2),
+    op_1_tasks(Op1),
+    op_2_tasks(Op2),
     findall(Invariants,
-            (make_invariants([Op1, Op2], Invariants),
+            (make_pmes([Op1, Op2], Invariants),
              fused_invariants(Invariants),
              maplist(maplist(past_doesnt_contain(m_br)), Invariants),
              maplist(maplist(past_doesnt_contain(a_br)), Invariants)),
@@ -70,4 +70,3 @@ solve_no_br :-
     format("~d Invariants~n", [ResLen]).
 
 main :- solve.
-

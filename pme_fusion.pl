@@ -1,12 +1,11 @@
 #!/usr/bin/env swipl
 :- module(pme_fusion,
           [make_region/5, region_with_tasks/2, region_with_tasks/3,
-           make_invariant/2, make_invariants/2,
+           make_pme/2, make_pmes/2,
            fused_invariants/1, loop_invariant/1,
            print_invariant/1, print_invariants/1, print_invariants_sep/1,
            gen_invariant/1, gen_invariants/1, gen_invariants_dedup/1,
-           test_pme/2, test_pmes/2, test_pmes_dedup/2,
-           add_empty_regions/3]).
+           test_task_list/2, test_task_lists/2, test_task_lists_dedup/2]).
 
 :- use_module(library(assoc)).
 :- use_module(library(clpfd)).
@@ -64,7 +63,7 @@ operand_region(tilde(X), Y) :- X = Y.
 productive_task(eq(O, _)) :- base_operand(O).
 productive_task(op_eq(O, _)) :- base_operand(O).
 
-task(comes_with(O, I)) :- base_operand(O), base_operand(I), !.
+task(comes_from(O, I)) :- base_operand(O), base_operand(I), !.
 task(X) :- productive_task(X).
 
 extract_operands([], Accum, Out) :- Out = Accum, !.
@@ -86,16 +85,63 @@ extract_term_operands(Term, Out) :-
 
 extract_operands(Term, Out) :- extract_operands(Term, [], Out).
 
-task_split(comes_with(O, I), In, Out) :- In = [I], Out = O.
+task_split(comes_from(O, I), In, Out) :- In = [I], Out = O.
 task_split(eq(O, I), In, Out) :- extract_operands(I, InOps), In = InOps, Out = O.
 task_split(op_eq(O, I), In, Out) :- extract_operands(I, InOps), In = InOps, Out = O.
+
+task_output(op_eq(O, _), O) :- !.
+task_output(eq(O, _), O) :- !.
+task_output(comes_from(O, _), O) :- !.
+task_output(Task) :-
+    format("ERROR: ~w is not a task in task list~n", [Task]),
+    fail.
+
+task_input(op_eq(_, I), I) :- !.
+task_input(eq(_, I), I) :- !.
+task_input(comes_from(_, I), I) :- !.
+task_input(Task) :-
+    format("ERROR: ~w is not a task in task list~n", [Task]),
+    fail.
+
+task_output_region(Task, Out) :-
+    task_output(Task, O),
+    (comes_from(_, I) = Task ->
+         ((base_operand(I), !);
+          format("ERROR: Invalid input ~w to comes_from task ~w~n", [I, Task]));
+     true),
+    (base_operand(O) -> operand_region(O, Out);
+     (format("ERROR, Invalid output ~w in task ~w~n", [O, Task]), fail)).
+
+collect_extra_input_regions(_OutRegions, [], Acc, ExtraInRegions) :- !,
+    ExtraInRegions = Acc.
+collect_extra_input_regions(OutRegions, [Term|Terms], Acc, ExtraInRegions) :- !,
+    collect_extra_input_regions(OutRegions, Term, [], InRegs),
+    ord_union(Acc, InRegs, NewAcc),
+    collect_extra_input_regions(OutRegions, Terms, NewAcc, ExtraInRegions).
+
+collect_extra_input_regions(OutRegions, Term, Acc, ExtraInRegions) :-
+    base_operand(Term) -> (operand_region(Term, Reg),
+                         (ord_memberchk(Reg, OutRegions), ExtraInRegions = Acc, !;
+                          format("WARNING: Region ~w (from ~w) doesn't appear as an output anywhere~n", [Reg, Term]),
+                          ord_add_element(Acc, Reg, ExtraInRegions)));
+    any(Ops) = Term -> (collect_extra_input_regions(OutRegions, Ops, [], SubAcc),
+                        ord_union(Acc, SubAcc, ExtraInRegions));
+    compound(Term) -> (compound_name_arguments(Term, _, Args),
+                       collect_extra_input_regions(OutRegions, Args, [], SubAcc),
+                       ord_union(Acc, SubAcc, ExtraInRegions));
+    ord_memberchk(Term, OutRegions) -> (format("WARNING: ~w appears an input without an associated state~n", [Term]),
+                                        ExtraInRegions = Acc);
+    ExtraInRegions = Acc.
+
+collect_extra_input_regions(OutRegions, Term, ExtraInRegions) :-
+    collect_extra_input_regions(OutRegions, Term, [], ExtraInRegions).
 
 has_op(List) :-
     exists_one(=(op_eq(_, _)), List).
 
 make_region(Id, Tasks, Past, Future, Reg) :-
     ((maplist(task, Tasks), !);
-     format("Invalid output for assignment in region ~w (tasks ~w)~n", [Id, Tasks])),
+     format("ERROR: Invalid output for assignment in region ~w (tasks ~w)~n", [Id, Tasks])),
     Reg = region{id:Id, tasks:Tasks, past:Past, future:Future}.
 
 region_with_tasks(Id, Tasks, Reg) :-
@@ -103,11 +149,32 @@ region_with_tasks(Id, Tasks, Reg) :-
 
 region_with_tasks(Id-Tasks, Reg) :- region_with_tasks(Id, Tasks, Reg).
 
-make_invariant(IdTasks, Regions) :-
-    maplist(region_with_tasks, IdTasks, Regions).
+tasks_grouped_by_region(TaskList, IdTasks) :-
+    map_list_to_pairs(task_output_region, TaskList, Pairs),
+    keysort(Pairs, Sorted),
+    group_pairs_by_key(Sorted, IdTasks).
 
-make_invariants(IdTasks, Invariants) :-
-    maplist(make_invariant, IdTasks, Invariants).
+add_empty_regions_([], IdTasks, NewIdTasks) :- IdTasks = NewIdTasks.
+add_empty_regions_([Id|Ids], IdTasks, NewIdTasks) :-
+    (exists_one(=(Id-_), IdTasks), !,
+     add_empty_regions_(Ids, IdTasks, NewIdTasks));
+    add_empty_regions_(Ids, [Id-[]|IdTasks], NewIdTasks).
+
+add_empty_regions(Ids, IdTasks, NewIdTasks) :-
+    maplist(add_empty_regions_(Ids), IdTasks, NewIdTasks).
+
+make_pme(TaskList, Regions) :-
+    make_pmes([TaskList], [Regions]).
+
+make_pmes(TaskLists, PMEs) :-
+    maplist(tasks_grouped_by_region, TaskLists, IdTasks),
+    maplist(pairs_keys, IdTasks, RegionsByLoop), % Sorted by the gather
+    ord_union(RegionsByLoop, AllOutRegions),
+    maplist(maplist(task_input), TaskLists, TaskInputs),
+    collect_extra_input_regions(AllOutRegions, TaskInputs, ExtraInRegions),
+    ord_union(AllOutRegions, ExtraInRegions, AllRegions),
+    add_empty_regions(AllRegions, IdTasks, FullIdTasks),
+    maplist(maplist(region_with_tasks), FullIdTasks, PMEs).
 
 is_region(region{id:_, tasks:Tasks, past:Past, future:Future}) :-
     split(Tasks, Past, Future).
@@ -278,7 +345,7 @@ regions_make_progress(Regions) :-
     PastReg.id \== FutureReg.id, !.
 
 no_floating_noops(Regions, Region) :-
-    (Region.tasks = [comes_with(_Out, In)]) ->
+    (Region.tasks = [comes_from(_Out, In)]) ->
         (operand_region(In, InId),
          ((InId == Region.id, !);
           (region_with_id(InId, Regions, InReg),
@@ -378,9 +445,9 @@ print_invariants_sep(Invariants) :-
     print_invariants(Invariants),
     format("~n").
 
-test_pme(PME, NInvariants) :-
+test_task_list(TaskList, NInvariants) :-
     findall(Invariant,
-            (make_invariant(PME, Invariant),
+            (make_pme(TaskList, Invariant),
              loop_invariant(Invariant)),
             Results),
     length(Results, NumResults),
@@ -389,9 +456,9 @@ test_pme(PME, NInvariants) :-
     ((NumResults #= NInvariants, !);
      (format("ERROR: expected ~d invariants~n", [NInvariants]), fail)).
 
-test_pmes(PMEs, NInvariants) :-
+test_task_lists(TaskLists, NInvariants) :-
     findall(Invariants,
-            (make_invariants(PMEs, Invariants),
+            (make_pmes(TaskLists, Invariants),
              fused_invariants(Invariants)),
             Results),
     length(Results, NumResults),
@@ -400,9 +467,9 @@ test_pmes(PMEs, NInvariants) :-
     ((NumResults #= NInvariants, !);
      (format("ERROR: expected ~d invariants~n", [NInvariants]), fail)).
 
-test_pmes_dedup(PMEs, NInvariants) :-
+test_task_lists_dedup(TaskLists, NInvariants) :-
     findall(Invariants,
-            (make_invariants(PMEs, Invariants),
+            (make_pmes(TaskLists, Invariants),
              fused_invariants(Invariants)),
             Results),
     length(Results, NumResults),
@@ -413,15 +480,6 @@ test_pmes_dedup(PMEs, NInvariants) :-
     ((NumInvariants #= NInvariants, !);
      (format("ERROR: expected ~d invariants~n", [NInvariants]), fail)).
 
-gen_invariant(PME) :- test_pme(PME, _).
-gen_invariants(PMEs) :- test_pmes(PMEs, _).
-gen_invariants_dedup(PMEs) :- test_pmes_dedup(PMEs, _).
-
-add_empty_regions_([], Invariant, NewInvariant) :- Invariant = NewInvariant.
-add_empty_regions_([Id|Ids], Invariant, NewInvariant) :-
-    (exists_one(=(Id-_), Invariant), !,
-     add_empty_regions_(Ids, Invariant, NewInvariant));
-    add_empty_regions_(Ids, [Id-[]|Invariant], NewInvariant).
-
-add_empty_regions(Ids, Invariants, NewInvariants) :-
-    maplist(add_empty_regions_(Ids), Invariants, NewInvariants).
+gen_invariant(TaskList) :- test_task_list(TaskList, _).
+gen_invariants(TaskLists) :- test_task_lists(TaskLists, _).
+gen_invariants_dedup(TaskLists) :- test_task_lists_dedup(TaskLists, _).

@@ -1,7 +1,7 @@
 #!/usr/bin/env swipl
 :- use_module(pme_fusion).
 
-:- consult(pmes).
+:- consult(common_task_lists).
 
 :- initialization(main, main).
 
@@ -18,14 +18,14 @@ big_mul_clause(M, A, B, C, D, E, F, G, H, FirstIsOp, Out) :-
                                         mul(hat(G), hat(H))))),
     Out = [Task1, Task2].
 
-op_1_pme(Out) :-
+op_1_tasks(Out) :-
     big_mul_clause(a_tl, a_tl, m_tl, m_tl, a_tl,
                    a_tr, m_tr, m_tr, a_tr, true, CTl),
     big_mul_clause(a_tr, a_tl, m_tr, m_tl, a_tr,
                    a_tr, m_br, m_tr, a_br, false, CTr),
     big_mul_clause(a_br, a_br, m_br, m_br, a_br,
                    a_tr, m_tr, m_tr, a_tr, true, CBr),
-    Out = [a_tl-CTl, a_tr-CTr, a_br-CBr].
+    flatten([CTl, CTr, CBr], Out).
 
 %% PME section for M -= AB - CD
 %% Everything but M is a hatless constant
@@ -38,18 +38,16 @@ mul_clause(M, A, B, C, D, FirstIsOp, Out) :-
                                     mul(hat(C), hat(D)))),
     Out = [Task1, Task2].
 
-op_2_pme(Out) :-
+op_2_tasks(Out) :-
     mul_clause(a_tl, m_tl, m_tl, m_tr, m_tr, true, CTl),
     mul_clause(a_tr, m_tl, m_tr, m_tr, m_br, false, CTr),
     mul_clause(a_br, m_br, m_br, m_tr, m_tr, true, CBr),
-    Out = [a_tl-CTl, a_tr-CTr, a_br-CBr].
+    flatten([CTl, CTr, CBr], Out).
 
 solve :-
-    op_1_pme(Op1),
-    op_2_pme(Op2),
-    add_empty_regions([a_tl, a_tr, a_br, m_tl, m_tr, m_br],
-                      [Op1, Op2], PMEs),
-    gen_invariants(PMEs).
+    op_1_tasks(Op1),
+    op_2_tasks(Op2),
+    gen_invariants([Op1, Op2]).
 
 main :- solve.
 

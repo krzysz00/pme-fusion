@@ -206,7 +206,7 @@ With this change, the algorithm operates correctly for problems where empty regi
 
 The second enhancement we need to make to our algorithm concerns operations that logically update multiple regions.
 For example, the $LU$ factorization splits a matrix $A$ into lower and upper triangular matrices $L$ and $U$ such that $LU = A$.
-Our system represents such operations as a series of tasks that updates one of the regions ($P$), and place a ``comes with'' task $B^i_{Q, \top} \leftarrow A^i_{P, \top}$ as the only task in the other ($Q$).
+Our system represents such operations as a series of tasks that updates one of the regions ($P$), and place a ``comes from'' task $B^i_{Q, \top} \leftarrow A^i_{P, \top}$ as the only task in the other ($Q$).
 The dependency enforcement mechanisms prevent this task from being completed unless $A^i_P$ is fully computed.
 To prevent spurious results, we impose the condition that $B^i_Q$ is computed if only if $A^i_P$ is.
 
