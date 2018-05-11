@@ -3,7 +3,7 @@
           [make_region/5, region_with_tasks/2, region_with_tasks/3,
            make_invariant/2, make_invariants/2,
            fused_invariants/1, loop_invariant/1,
-           print_invariant/1, print_invariants/1,
+           print_invariant/1, print_invariants/1, print_invariants_sep/1,
            gen_invariant/1, gen_invariants/1, gen_invariants_dedup/1,
            test_pme/2, test_pmes/2, test_pmes_dedup/2,
            add_empty_regions/3]).

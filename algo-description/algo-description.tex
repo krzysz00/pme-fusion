@@ -8,7 +8,9 @@
 \newcommand*{\mycite}[1]{~\cite{#1}}
 
 \usepackage{hyperref}
+
 \usepackage{biblatex}
+\addbibresource{cites.bib}
 
 \usepackage{setspace}
 \singlespacing{}
@@ -16,101 +18,291 @@
 
 \input{flatex}
 
-\newcommand*{\opf}{\mathcal{F}}
+\newcommand*{\opF}{\mathcal{F}}
+\newcommand*{\opf}{\mathcal{f}}
 
-\title{General description of the automated loop fusion algorithm}
+\title{The document where I explain my algorithm}
 \author{Krzysztof A. Drewniak}
-
 
 \begin{document}
 \maketitle{}
+\section{Background}
+\subsection{FLAME}
+Our work is based on the FLAME\mycite{Bientinesi2005,Low2013} methodology for systematically (and, from this, automatically) deriving algorithms for operations on (dense) matrices or other objects (such as graphs\textbf{TODO cite a paper here}) with a similar structure.
+The FLAME methodology is effective for operations $\opF(\hat{A}, O)$ where an object $A$ has its initial state $\hat{A}$ overwritten incrementally throughout the operation to produce its final state $\widetilde{A} = \opF(\hat{A}, O)$ at the algorithm's termination.
+The computations in the algorithm may also depend on a set of read-only operands $O$.
+It should be noted that $\opF$ does not necessarily depend on $\hat{A}$, such as in the case of matrix-vector multiply, where we have $\widetilde{y} = Ax$ for some read-only $A$ and $x$.
 
-For simplicity, we'll start off by presenting this algorithm for loops over one matrix without additional inputs.
-What we want to do is to find algorithms for the sequence of operations $A^1 \coloneqq \opf^0(A^0); A^2 \coloneqq \opf^1{A^1}; A^N \coloneqq \opf^{N - 1}(A^{N - 1})$.
-(All of these $\opf^i$ owerwrite these inputs - there is one matrix $A$, which contains different values over time.)
-More specifically, we want to find (assuming they exist) fused algorithms for these operations, that is, we want an $\opf'$ such that $A^n \coloneqq \opf'(A^0)$, with $A^0$ only being looped over/overwritten once.
+Throughout this paper, we may omit the set of read-only operands if they clutter the presentation.
 
-The algorithms we're looking for are expressible in FLAME notation.
-That is, in order to perform our search, we're going to partition our matrix (or matrices) and into regions $A_R^i$.
-The typical partitions look like:
+In the FLAME approach, the object being operated on is divided into regions, and the algorithm progresses by ``moving'' values between regions.
+Each region (and therefore the whole of $A$) is constrained by a loop invariant, which must hold at the beginning of the algorithm and after each iteration of the algorithm's loop.
+At the beginning of the algorithm, all of $A$ is assigned to some region $P$, which must have a loop invariant that causes $A_P$ to be equal to $\hat{A}$ at that time.
+This leaves all of the other regions empty.
+During the algorithm, values are moved from $A_P$ to other regions, with the goal of ending the computation with all values in a region $Q$ such that $A_Q = \widetilde{A}$ on termination.
+The algorithm is determined by its loop invariant, as the body of the loop is found by determining the computations needed to allow the sizes of regions to change while respecting the loop invariant.
+
+Loop invariants (and therefore algorithm) for some $\opF$ can also be found systematically.
+This process begins by forming the \emph{partitioned matrix expression} (PME) for $\opF$.
+This consists of partitioning $A$ (and therefore $\hat{A}$ and $\widetilde{A}$) into a series of regions $A_R$ and finding the $\opF_R$ that correspond to the computations needed to compute each region (which may involve some algebra).
+This process may also require some of the read-only operands to be partitioned, though those partitionings need not be the same as the one used for $A$.
+
+As an example, if $A$ is a general matrix, we could partition it using a $2 \times 2$ grid of regions to form the following PME
 \begin{equation*}
-  \FlaTwoByTwo{A^{i + 1}_{TL} \coloneqq \opf^i_{TL}(A^i)}{A^{i + 1}_{TR} \coloneqq \opf^i_{TR}(A^i)}
-              {A^{i + 1}_{BL} \coloneqq \opf^i_{BL}(A^i)}{A^{i + 1}_{BR} \coloneqq \opf^i_{BR}(A^i)}.
+  \FlaTwoByTwo{\widetilde{A}_{TL} = \opF_{TL}(\hat{A}_{TL})}{\widetilde{A}_{TR} = \opF_{TR}(\hat{A}_{TR})}
+  {\widetilde{A}_{BL} = \opF_{BL}(\hat{A}_{BL})}{\widetilde{A}_{BR} = \opF_{BR}(\hat{A}_{BR})},
 \end{equation*}
 
-This type of partitioned matrix expression (PME) can give rise to multiple algorithms.
-This is because $\opf^i_R$ consists of ``tasks'', each of which can either be included in a loop invariant (which determines what updates the algorithm needs to perform) or in the remainder of that invariant (which shows what computation the algorithm needs to perform).
+From the PME, we can find potential loop invariants by partitioning each $\opF_R$ into a (potential) loop invariant $\opf_R$ and remainder $\opf'_R$.
+These are two functions, which may be the identity, such that $\opF_R(\hat{A}_R) = \opf'_R(\opf_R(\hat{A}_R))$.
+In this formalism, the remainder represents computations that have not yet been performed at some particular iteration of the loop.
 
-The general form of a FLAME algorithm is to loop over $A$, expanding some region(s) while shrinking others, until the whole matrix is one region that contains the final result.
-The loop needs to satisfy the loop invariant at each iteration.
+Not all collections of such function partitionings form a loop invariant, as there are two global constraints on a loop invariant.
+The first,  mentioned above in different terms, is that there must be distinct regions $P$ and $Q$ such that $P$ has the operation that $\opF$ performs in its remainder and $Q$ has that operation in the invariant.
+This ensures that the algorithm can make progress by changing region sizes to shrink $P$ and expand $Q$.
 
-We will write a task $t$ that updates the region $A_R$ as $\{(R_1, s_1), (R_2, s_2) \vee (R_3, s_3), \ldots (R_k, s_k)\} \to \{(R, t)\}$.
-The $R_i$ are regions of $A$ (or, more generally, regions of any object in the problem), while the $s_i$ and $t$ are specifiers of the state of the region.
+The second constraint is that loop invariants and remainders must respect data dependencies.
+That is, no $\opf_R$ can read from a memory state that has not yet been computed, not can an $\opf'_R$ read from a state that has been overwritten by previous computations.
+If both of these constraints are satisfied, the collection of partitionings becomes a loop invariant for $\opF$.
 
-These state specifiers can either be $\bot$, representing an unmodified input, $\top$, a fully computed output, a natural number $d$, representing intermediate states, or a pair $(d, p)$, where $d$ is a number and $p$ is an arbitrary symbol, which is used to handle computations that can happen in arbitrary order.
+As a concrete example, we can consider the Cholesky factorization $CHOL(\hat{A})$, which, given a symmetric matrix $\hat{A}$, produces a lower (or upper) triangular matrix $\widetilde{A}$ such that $\widetilde{A}\widetilde{A}^T = \hat{A}$.
+If we partition $A$ in the specification, we can derive the PME (with $*$ representing data that is not stored in memory)
+\begin{align*}
+  \FlaTwoByTwo{\widetilde{A}_{TL}}{0}{\widetilde{A}_{BL}}{\widetilde{A}_{BR}}
+  \FlaTwoByTwo{\widetilde{A}_{TL}^T}{\widetilde{A}_{BL}^T}{0}{\widetilde{A}_{BR}^T}
+  = \FlaTwoByTwo{\hat{A}_{TL}}{*}{\hat{A}_{BL}}{\hat{A}_{BR}}\\
+  \FlaTwoByTwo{\widetilde{A}_{TL}\widetilde{A}_{TL}^T = \hat{A}_{TL}}{*}
+  {\widetilde{A}_{BL}\widetilde{A}_{TL}^T = \hat{A}_{BL}}{\widetilde{A}_{BL}\widetilde{A}_{BL}^T + \widetilde{A}_{BR}\widetilde{A}_{BR}^T = \hat{A}_{BR}}\\
+  \FlaTwoByTwo{\widetilde{A}_{TL} = CHOL(\hat{A}_{TL})}{*}
+  {\widetilde{A}_{BL} = \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}{\widetilde{A}_{BR} = CHOL(\hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T)}
+\end{align*}
 
-We also allow ors ($\vee$) as task inputs, to represent cases where the input to a task could be in several possible states.
-For example, when performing a matrix multiply, the matrix that the result is added to can either be the input or the result of another portion of the multiplication, and we don't want to restrict which order the two parts occur in.
+From this PME, we can find the following three loop invariants:
+\begin{equation*}
+  \FlaTwoByTwo{A_{TL} = CHOL(\hat{A}_{TL})}{*}{A_{BL} = \hat{A}_{BL}}{A_{BR} = \hat{A}_{BR}} \qquad
+  \FlaTwoByTwo{A_{TL} = CHOL(\hat{A}_{TL})}{*}{A_{BL} = \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}{A_{BR} = \hat{A}_{BR}} \qquad
+  \FlaTwoByTwo{A_{TL} = CHOL(\hat{A}_{TL})}{*}{A_{BL} = \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}{A_{BR} = \hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T}
+\end{equation*}
 
-A partitioned matrix expression then consists of a set of regions $R$, each of which has an associated set of tasks $T_R$ which update it.
-Finding a loop invariant means finding pasts $P_R$ and futures $F_R$ for each region such that $T_R = P_R \cup F_R$, the two sets are disjoint, and certain other constraints are satisfied.
+In the algorithms that arise from all of these loop invariants, the entire matrix begins in $A_{BR}$ and moves to $A_{TL}$ as computations are performed.
+It is worth noting that the third loop invariant is still valid since $A_{BR}$ is equal to $\hat{A}_{BR}$ initially, because the $A_{BL}$ region is empty, rendering the subtraction irrelevant at that time.
 
-The first constraint is that some region $R$ must have a task that represents the operation being performed by the algorithm in ins past, while a different region $R'$ must have such a task in its future.
-That means that the process of moving data from $R'$ to $R$ will compute the operation we're trying to generate an algorithm for.
+Dependency analysis is important, as
+\begin{equation*}
+  \FlaTwoByTwo{A_{TL} = CHOL(\hat{A}_{TL})}{*}{A_{BL} = \hat{A}_{BL}}{A_{BR} = \hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T}
+\end{equation*}
+is not a valid loop invariant for the Cholesky factorization because the computation of $A_{BR}$ requires $A_{BL}$'s fully computed value to be available, even though it has not yet been written to memory.
 
-The second constraint is that dependencies between the past and future are satisfiable.
-That is, a task $(R_i, s_i)$ may not be in the past of any region if the state $(R_i, s_i)$ will only be readable after work that occurs in the future.
-Similarly, tasks in the future may not read from states that have been overwritten.
+\subsection{Loop fusion}
+If we have a series of $n$ operations $\widetilde{A}^0 = \opF^0(\hat{A}_0); \widetilde{A}^1 = \opF^1(\hat{A}^1); \ldots \widetilde{A}^{n - 1} = \opF(\hat{A}^{n - 1})$
+over the same object $A$ (that is, for all $i$, $\hat{A}^i = \widetilde{A}^{i - 1}$), \emph{loop fusion} is the process of finding an algorithm for $\widetilde{A}^{n - 1} = \opF(\hat{A}^0)$ that only iterates through $A$ once.
 
-To ensure dependencies are satisfied, we define an ordering $<_T$ between tasks.
-First, $(R, s) <_T (R', s')$ and $(R', s') <_T (R, s)$ if $R'$ and $Rr$ are different regions.
-If $R' = R$, then we defer to the following ordering on states: $\bot <_S d <_S \top$ for all integers $d$ (and pairs $(d, p)$).
-Also, for integers $d$ and $e$, $d <_S e$ if $d < e$ (similarly for pairs $(d, p)$ and $(e, p')$).
-Finally, $(d, p) <_S (d, p')$ if $p \neq p'$.
+Such loop fusion is achieved by taking the loop bodies from an algorithm for each $\opF^i$ and concatentating them to create one fused loop.
+However, this operation only produces a correct algorithm for $\opF$ when the loop invariants for each loop being fused satisfy certain additional constraint, which were first set out in \mycite{Low2013}.
 
-If we want to compare an or $(R_1, s_1) \vee (R_2, s_2) \ldots \vee (R_k, s_k)$, we simply need to find one of the $(R_i, s_i)$ that makes the comparison true.
-That is, dependencies are satisfied for an or if there's a branch of the or that makes the loop an invariant.
+For the purposes of these conditions, a region $R$4 is \emph{fully computed} in the $k$the loop invariant if $\opf_R^{k'}$ is the identity, and it is \emph{uncomputed} if $\opf_R^k$ is the identity.
 
-These orderings allow us to characterize the constraint for satisfied dependencies as requiring all inputs to tasks in the past to be $<_O$ the outputs of all future tasks, and requiring the outputs of all past tasks to be $\leq_O$ the inputs of all tasks in the future.
+The first condition is that, if the $i + 1$st loop invariant depends on the values in a region $R$ (in a way that isn't simply $A_R = \hat{A}_R$), then $R$ must be fully computed by the $i$th loop invariant, or else the assumption that $\hat{A}^{i + 1}_R = \widetilde{A}^i_R$ that $\opf^i$ relies on for correctness would be violated.
+Similarly, if the $i$th loop invariant depends on $A_R$ to compute its remainder, then, for all $j > i$, $R$ must be uncomputed by the $j$th invariant, or else the work that the $i$th loop will perform in the future will use incorrect values because $A_R$ no longer maintains the expected state.
 
-There's also a constraint meant to reduce ``duplicate'' results that arise from task of the form $\{(R, \top) \to (R' \top)\}$ which are tagged as noops, which are needed to maintain the invariant that all tasks which update $R$ are part of region $R$'s task set.
-For example, we need such a noop tasks to represent parts of the $LU$ factorization $A \to LU$.
-With these tasks, we ensure the noop cannot be in the future if the source operand $(R, \top)$ has been computed.
+Finding loop invariants by hand is a process that can quickly grow tedious.
+For example, finding an fused algorithm for the inversion of a symmetric matrix (when computed as $A \coloneqq CHOL(A); A \coloneqq A^{-1}; A \coloneqq A^TA$) requires evaluating 72 combinations of loop invariants to find the single fused algorithm.
+Therefore, we have developed a tool that will automatically perform this search.
 
-Returning to the loop fusion question, we know what, in the case of unfused algorithms, the operand $(R^{i + 1}, \bot)$ is the exact same data as $(R^{i}, \top)$.
-In the fused case, any algorithm could leave each region in a computed ($\top$) state, an uncomputed $(\bot)$ state, or a partially computed state.
-Since the details of exactly how a given region was partially computed are irrelevant to further discussion, the numbered intermediate states will be denoted as $\vdash$.
+\section{Algorithm}
 
-When finding fused algorithms, it is useful to consider the problem as a collection of \emph{strips} instead of as a series of PMEs.
-The strip $S_R$ for a region $R$ is the sequence of tasks $[T^0_R, T^1_R, \ldots, T^{N - 1}_R]$.
-This effectively corresponds to ``transposing'' the input PMEs.
+\subsection{Task-based representation of PMEs}
+In order to allow for the automated generation of (fused) loop invariants, we first need to represent each region's function $\opF_i^R$ as a series of \emph{tasks}, similarly to the approach used by CLICK\textbf{TODO find that paper}.
+To develop this representation, we need to introduce notation for the possible states that an object can be in during a loop.
 
-The theory of loop fusion gives us two constraints on how the tasks in successive loops can relate to each other.
-First, the $i$th loop cannot read from the region $R$ in the past unless it was fully computed by region $i - 1$ (or it is the first loop).
-Second, the region $R$ cannot be read in the future unless, for all $j > i$, the $j$th loop does not update $R$, that is, the $j$th loop leaves $R$ uncomputed.
+We already have $\hat{A}_R$ for the initial state of $A_R$ and $\widetilde{A}_R$ for the final state.
+However, we also need a notation for partial states.
+We will represent partially computed states of $A_R$ as $A_{R, n}$ for some natural number $n$ or as $A_{R, (n, x)}$ for a number $n$ and symbol $x$.
+These two notations allow us to indicate which partial states can and must be computed before other states.
 
-One consequence of these theorems is that, within a strip, the task sets must never have outputs (the most-computed state in the past) that are more computed than the outputs of previous regions, and that there must be at most one partially-computed region per strip.
+For example, if we consider $\widetilde{A}_{BR} = CHOL(\hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T)$, we can rewrite this as $A_{BR, 0} = \hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T; \widetilde{A}_{BR} = CHOL(A_{BR, 0})$.
+This indicates that an algorithm that only computes $A_{BR, 0}$ is an option we want to consider.
 
-This insight allows us to begin our search by considering all the possible assignments of $\top$, $\vdash$, and $\bot$ to task sets in a strip that make the strip have the form $\top^*\vdash+?\bot^*$.
+The extended $A_{R, (n, x)}$ notation is needed for cases such as $\widetilde{A}_R = B\hat{A}_RC$, where there are multiple possible ways to split the expression that lead to valid algorithms.
+We could partition it as $A_{R, 0} = B\hat{A}_R; \widetilde{A}_R = A_{R, 0}C$, or as $A_{R, 0} = \hat{A}_RC; \widetilde{A}_R = BA_{R, 0}$.
+To represent both of these possibilities, we will write the expression as $A_{R, (0, a)} = B(\hat{A}_R \vee A_{R, (0, b)}); A_{R, (0, b)} = (\hat{A}_R \vee A_{R, (0, a)})C$, where the ors indicate that either state can be used to begin the computation.
+(The final state $\widetilde{A}$ is implied by executing both tasks.)
 
-Simply performing this search for each region will generate many possible past-and-future splits that, even if they were loop invariants for each PME, would not be fusable.
-To ensure fusability, we need to perform a global check for it.
-The only data needed for this check is that, for each strip, we need to compute the number of the last region that is fully computed $C_R$ (if there is no such region, $L_R$ is $-1$), and the first uncomptuted region $U_R$ (if there is none such, $U_R$ is $N$).
+This notation allows us to represent each region $R$ in the PME as a set of tasks $T_R$, each of which brings $R$ into some state and depends on a set of operands, which may be particular memory states of $R$ or other regions.
+In this model, the loop invariant is the set of past tasks $P_{R}$, and the remainder is the set of future tasks $F_{R}$, such that $T_R$ is the union of the past and future, which are disjoint.
+We can abstract this representation further to simplify the description and implementation of the algorithm.
+We can write each task as $A_{R, \sigma} \coloneqq I_{R, \sigma}$ for some set of inputs $I$, which are (disjunctions of) symbols of the form $M_{R, \sigma}$ for some object $M$, region $R$ of $A$, and memory state $\sigma$.
+For uniformity, we represent $\hat{A}_R$ as $A_{R, \bot}$ and $\widetilde{A}_R$ as $A_{R, \top}$ for uniformity.
 
-Then, if $R'$ is an input to the past of the $i$th loop, we need $C_R \geq i - 1$.
-If it as input to the future of that loop, we need $C_R \leq i + 1$.
-These constraints reflect the fusion theorems from above.
+One potential complication with this abstraction loses information on which tasks represent the main operation of the algorithm we are searching for, which is information needed to verify that a loop makes progress.
+To resolve this, tasks can be tagged as the main operation by writing the assignment operator as $\coloneqq_O$.
+Tasks with such a tag are \emph{operation tasks}.
 
-So, our algorithm proceeds to search through all the valid strips (considering all possible partially-computed regions for each $\vdash$ task set).
-Then, it confirms that the past-future splits for each task set satisfy the fusion constraints.
-For efficiency, these checks are interleaved, allowing certain candidate strips to be rejected because they would violate constraints on $C_R$ or $U_R$ that arise from strips that have already been fixed.
-Once splits are found that satisfy the fusion constraints, they are checked to confirm that each loop within them satisfies the constraints on being a loop invariant.
+In this representation, a region is fully computed when $P_R = T_R$, and uncomputed if $T_R = F_R$.
 
-One issue arises when there is more than one matrix or vector being updated by the operations, and not every operation updates each object.
-For our algorithm to operate correctly, we need each strip to be the same length.
-Ensuring this is the case sometimes requires adding empty task sets, which have the form $\{\} \to \{\}$.
-When there are empty task sets, we allow the values of $C_R$ and $U_R$ to live in a range between their ``true'' value (what it would be if the empty sets were computations) and the value that assumes the end of the surrounding empty task sets was also computed/uncomputed.
-We can do this since $C_R$ and $U_R$ are already variables in a integer constraint programming system, which allows us to assign ranges to them just like concrete values.
+\subsection{Finding invariants for one PME}
+To produce and algorithm for finding all the loop invariants for one PME, we need to translate the conditions such an invariant must satisfy into the task-based setting.
 
-This expansion is needed to avoid rejecting valid fusable loop invariants by propagating the computation/non-computation of a region through the series of loops in which it isn't used while also ensuring that constraints that come from earlier loops are satisfied.
+The process of finding all invariants begins by considering all possibly partitions of each set of tasks from the PME into past and future sets.
+Then, we filter these partitions in order to only produce valid loop invariants.
+The first filter consists of ensuring that the candidate invariant has distinct regions $P$ and $Q$ where there is an operation task in $P_T$ and one in $F_Q$.
+
+The second condition ensures that all dependencies are satisfied.
+In order to express this condition, we must define what it means for a memory state $A_{R_1, \sigma_1}$ to be before the state $A_{R_2, \sigma_2}$.
+These two states are before each other any of the following are true:
+\begin{itemize}
+\item $R_1$ and $R_2$ are different regions
+\item $\sigma_1 = \bot$ and $\sigma_2$ is any other state
+\item $\sigma_2 = \top$ and $\sigma_1$ is any other state
+\item $\sigma_1 = m$ or $(m, x)$ and $\sigma_2 = n$ or $(n, y)$, where $m < n$
+\item $\sigma_1 = (n, x)$ and $\sigma_2 = (n, y)$ where $x \neq y$.
+\end{itemize}
+Similarly, $A_{R_1, \sigma_1}$ is not after $A_{R_2, \sigma_2}$ if the are the same memory state or $A_{R_1, \sigma_1}$ is before $A_{R_2, \sigma_2}$.
+
+A disjunction of states is before (or not after) a state $A_{R, \sigma}$ if any of the states in the disjunction is before $A_{R, \sigma}$.
+Similarly, $A_{R, \sigma}$ is before (or not after) a disjunction if it is before/not after any of the elements in the disjunction.
+
+To perform the dependency check, we define $I_P$ to be the set of all inputs to tasks in the past (and similarly $I_F$ the set of future inputs).
+We also define $O_P$ to be the set of all memory states produced by a task in the past (and, again, $O_F$ to be the set of memory states computed in the future).
+Confirming that all data dependencies are satisfied is then reduced to ensuring that, for each $s \in O_P$ and $t \in I_F$, $s$ is not after $t$ and that, for every $s \in I_P$ and $t \in O_F$, $s$ is before $t$.
+These two checks ensure no past output overwrites a state that a future computation requires and that no computation in the invariant requires a stat that has not been produced, respectively.
+
+From the theory of FLAME, we know that these conditions are sufficient to define a valid loop invariant for an operation $\widetilde{A} = \opF(\hat{A})$.
+
+\subsection{Finding fusable loop invariants}
+Our method for finding fusable loop invariants rests on a corollary of the conditions needed for a sequence of loop invariants to be fusable.
+If we organize the fusion problem as a series of strips $S_R = [A_R^i \mid 0 \leq i < n]$ (that is, if we ``transpose'' the problem), we can show that, in a collection of fusable loop invariants, each such strip must begin with a (possibly empty) sequence of fully computed regions, which followed by at most one partially computed region, with the remaining regions uncomputed.
+
+This arrangement ensures the fusion-related constraints between the same region in different loops are satisfied.
+Therefore, we begin by exploring all possible splits of each strip into a (possibly empty) computed strip, an ``any'' region $P$, and an uncomputed strip.
+We allow the ``any'' region to vary between possible partitionings between past and future.
+However, we do not investigate where $P$ is uncomputed and not the first region, as this case would have already been checked earlier in the search.
+
+While performing this search, we track constraints on the index of the loop in which a region is last computed, $C_R$, and the first index where it is uncomputed $U_R$.
+These values both start with a domain of $[-1, n]$.
+The additional indices allow us to represent the cases where no regions are computed and where no regions are uncomputed, respectively.
+
+After we have chosen the past/future partitions for a given strip, we can then use the positions of the tasks to impose constraints on $C_R$ and $U_R$.
+We know that, if a task in the invariant of the $i$th loop has a state of the region $P$ as an input, then it must be the case that $C_P \geq i - 1$, so that the value of $A_P$ will be correct during the read.
+Similarly, inputs to tasks from the remainder imply that $U_P \leq i + 1$ to prevent required memory states from being overwritten.
+
+We also know that, once we have made past/future assignments for a strip $S_R$, we can determine the true values of $C_R$ and $U_R$.
+This allows us to quickly reject partitions of a strip that would conflict with partitions already fixed for other regions.
+
+Once we find a solution to these fusion-related constraints, we conclude by ensuring that we have produced loop invariants for each $\opF^i$ using the method outlined in the previous subsection.
+It should be noted that, if there is only one operation to fuse, this algorithm reduces to the invariant-finding approach from the previous section.
+
+\subsection{Multiple output objects}
+The algorithm presented above can be extended to cases where operations update different output matrices, such as the program $\widetilde{y} = \hat{L}x; \widetilde{L} = \hat{L}^{-1}$.
+This operation updates two matrices, $y$ and $L$, and the updates can be fused together.
+Most of the algorithm proceeds unmodified with the observation that regions of different matrices are distinct.
+
+However, there is one necessary change, which involves empty regions (which contain no tasks), which must be added to loops that do not look at an operand, in order to ensure that all strips have the same length.
+Adding empty regions only requires one alteration to the search procedure, since empty regions are, by definition, uncomputed, which ensures any empty regions will be skipped by the anti-duplication filter (and an initial empty region will test the case of all actual regions being uncomputed).
+
+However, the constraints on $C_R$ and $U_R$ must be made somewhat more complex, as, for different constraints, it could be useful to consider either the index of the actual last computed/first uncomputed region or the index of any of the empty regions following it.
+Therefore, instead of imposing an equality constraint on $C_R$ and $U_R$ after the strip $S_R$ is partitioned, we bound the values between the index of the last computed/first uncomputed region in the strip and the index end of the sequence of empty regions (if there are any) following that region.
+With this change, the algorithm operates correctly for problems where empty regions needed to be inserted.
+
+The second enhancement we need to make to our algorithm concerns operations that logically update multiple regions.
+For example, the $LU$ factorization splits a matrix $A$ into lower and upper triangular matrices $L$ and $U$ such that $LU = A$.
+Our system represents such operations as a series of tasks that updates one of the regions ($P$), and place a ``comes with'' task $B^i_{Q, \top} \leftarrow A^i_{P, \top}$ as the only task in the other ($Q$).
+The dependency enforcement mechanisms prevent this task from being completed unless $A^i_P$ is fully computed.
+To prevent spurious results, we impose the condition that $B^i_Q$ is computed if only if $A^i_P$ is.
+
+\section{Implementation}
+Our implementation is a fairly direct translation of the algorithm presented above into SWI Prolog, using the \texttt{clpfd} to handle integer constraint.
+The input to our program is PMEs for each operation,  written as a series of tasks.
+We allow the description of a task to nest the operands to the task in arbitrary terms, which are ignored.
+
+% For simplicity, we'll start off by presenting this algorithm for loops over one matrix without additional inputs.
+% What we want to do is to find algorithms for the sequence of operations $A^1 \coloneqq \opF^0(A^0); A^2 \coloneqq \opF^1{A^1}; A^N \coloneqq \opF^{N - 1}(A^{N - 1})$.
+% (All of these $\opF^i$ owerwrite these inputs - there is one matrix $A$, which contains different values over time.)
+% More specifically, we want to find (assuming they exist) fused algorithms for these operations, that is, we want an $\opF'$ such that $A^n \coloneqq \opF'(A^0)$, with $A^0$ only being looped over/overwritten once.
+
+% The algorithms we're looking for are expressible in FLAME notation.
+% That is, in order to perform our search, we're going to partition our matrix (or matrices) and into regions $A_R^i$.
+% The typical partitions look like:
+% \begin{equation*}
+%   \FlaTwoByTwo{A^{i + 1}_{TL} \coloneqq \opF^i_{TL}(A^i)}{A^{i + 1}_{TR} \coloneqq \opF^i_{TR}(A^i)}
+%               {A^{i + 1}_{BL} \coloneqq \opF^i_{BL}(A^i)}{A^{i + 1}_{BR} \coloneqq \opF^i_{BR}(A^i)}.
+% \end{equation*}
+
+% This type of partitioned matrix expression (PME) can give rise to multiple algorithms.
+% This is because $\opF^i_R$ consists of ``tasks'', each of which can either be included in a loop invariant (which determines what updates the algorithm needs to perform) or in the remainder of that invariant (which shows what computation the algorithm needs to perform).
+
+% The general form of a FLAME algorithm is to loop over $A$, expanding some region(s) while shrinking others, until the whole matrix is one region that contains the final result.
+% The loop needs to satisfy the loop invariant at each iteration.
+
+% We will write a task $t$ that updates the region $A_R$ as $\{(R_1, s_1), (R_2, s_2) \vee (R_3, s_3), \ldots (R_k, s_k)\} \to \{(R, t)\}$.
+% The $R_i$ are regions of $A$ (or, more generally, regions of any object in the problem), while the $s_i$ and $t$ are specifiers of the state of the region.
+
+% These state specifiers can either be $\bot$, representing an unmodified input, $\top$, a fully computed output, a natural number $d$, representing intermediate states, or a pair $(d, p)$, where $d$ is a number and $p$ is an arbitrary symbol, which is used to handle computations that can happen in arbitrary order.
+
+% We also allow ors ($\vee$) as task inputs, to represent cases where the input to a task could be in several possible states.
+% For example, when performing a matrix multiply, the matrix that the result is added to can either be the input or the result of another portion of the multiplication, and we don't want to restrict which order the two parts occur in.
+
+% A partitioned matrix expression then consists of a set of regions $R$, each of which has an associated set of tasks $T_R$ which update it.
+% Finding a loop invariant means finding pasts $P_R$ and futures $F_R$ for each region such that $T_R = P_R \cup F_R$, the two sets are disjoint, and certain other constraints are satisfied.
+
+% The first constraint is that some region $R$ must have a task that represents the operation being performed by the algorithm in ins past, while a different region $R'$ must have such a task in its future.
+% That means that the process of moving data from $R'$ to $R$ will compute the operation we're trying to generate an algorithm for.
+
+% The second constraint is that dependencies between the past and future are satisfiable.
+% That is, a task $(R_i, s_i)$ may not be in the past of any region if the state $(R_i, s_i)$ will only be readable after work that occurs in the future.
+% Similarly, tasks in the future may not read from states that have been overwritten.
+
+% To ensure dependencies are satisfied, we define an ordering $<_T$ between tasks.
+% First, $(R, s) <_T (R', s')$ and $(R', s') <_T (R, s)$ if $R'$ and $Rr$ are different regions.
+% If $R' = R$, then we defer to the following ordering on states: $\bot <_S d <_S \top$ for all integers $d$ (and pairs $(d, p)$).
+% Also, for integers $d$ and $e$, $d <_S e$ if $d < e$ (similarly for pairs $(d, p)$ and $(e, p')$).
+% Finally, $(d, p) <_S (d, p')$ if $p \neq p'$.
+
+% If we want to compare an or $(R_1, s_1) \vee (R_2, s_2) \ldots \vee (R_k, s_k)$, we simply need to find one of the $(R_i, s_i)$ that makes the comparison true.
+% That is, dependencies are satisfied for an or if there's a branch of the or that makes the loop an invariant.
+
+% These orderings allow us to characterize the constraint for satisfied dependencies as requiring all inputs to tasks in the past to be $<_O$ the outputs of all future tasks, and requiring the outputs of all past tasks to be $\leq_O$ the inputs of all tasks in the future.
+
+% There's also a constraint meant to reduce ``duplicate'' results that arise from task of the form $\{(R, \top) \to (R' \top)\}$ which are tagged as noops, which are needed to maintain the invariant that all tasks which update $R$ are part of region $R$'s task set.
+% For example, we need such a noop tasks to represent parts of the $LU$ factorization $A \to LU$.
+% With these tasks, we ensure the noop cannot be in the future if the source operand $(R, \top)$ has been computed.
+
+% Returning to the loop fusion question, we know what, in the case of unfused algorithms, the operand $(R^{i + 1}, \bot)$ is the exact same data as $(R^{i}, \top)$.
+% In the fused case, any algorithm could leave each region in a computed ($\top$) state, an uncomputed $(\bot)$ state, or a partially computed state.
+% Since the details of exactly how a given region was partially computed are irrelevant to further discussion, the numbered intermediate states will be denoted as $\vdash$.
+
+% When finding fused algorithms, it is useful to consider the problem as a collection of \emph{strips} instead of as a series of PMEs.
+% The strip $S_R$ for a region $R$ is the sequence of tasks $[T^0_R, T^1_R, \ldots, T^{N - 1}_R]$.
+% This effectively corresponds to ``transposing'' the input PMEs.
+
+% The theory of loop fusion gives us two constraints on how the tasks in successive loops can relate to each other.
+% First, the $i$th loop cannot read from the region $R$ in the past unless it was fully computed by region $i - 1$ (or it is the first loop).
+% Second, the region $R$ cannot be read in the future unless, for all $j > i$, the $j$th loop does not update $R$, that is, the $j$th loop leaves $R$ uncomputed.
+
+% One consequence of these theorems is that, within a strip, the task sets must never have outputs (the most-computed state in the past) that are more computed than the outputs of previous regions, and that there must be at most one partially-computed region per strip.
+
+% This insight allows us to begin our search by considering all the possible assignments of $\top$, $\vdash$, and $\bot$ to task sets in a strip that make the strip have the form $\top^*\vdash+?\bot^*$.
+
+% Simply performing this search for each region will generate many possible past-and-future splits that, even if they were loop invariants for each PME, would not be fusable.
+% To ensure fusability, we need to perform a global check for it.
+% The only data needed for this check is that, for each strip, we need to compute the number of the last region that is fully computed $C_R$ (if there is no such region, $L_R$ is $-1$), and the first uncomptuted region $U_R$ (if there is none such, $U_R$ is $N$).
+
+% Then, if $R'$ is an input to the past of the $i$th loop, we need $C_R \geq i - 1$.
+% If it as input to the future of that loop, we need $C_R \leq i + 1$.
+% These constraints reflect the fusion theorems from above.
+
+% So, our algorithm proceeds to search through all the valid strips (considering all possible partially-computed regions for each $\vdash$ task set).
+% Then, it confirms that the past-future splits for each task set satisfy the fusion constraints.
+% For efficiency, these checks are interleaved, allowing certain candidate strips to be rejected because they would violate constraints on $C_R$ or $U_R$ that arise from strips that have already been fixed.
+% Once splits are found that satisfy the fusion constraints, they are checked to confirm that each loop within them satisfies the constraints on being a loop invariant.
+
+% One issue arises when there is more than one matrix or vector being updated by the operations, and not every operation updates each object.
+% For our algorithm to operate correctly, we need each strip to be the same length.
+% Ensuring this is the case sometimes requires adding empty task sets, which have the form $\{\} \to \{\}$.
+% When there are empty task sets, we allow the values of $C_R$ and $U_R$ to live in a range between their ``true'' value (what it would be if the empty sets were computations) and the value that assumes the end of the surrounding empty task sets was also computed/uncomputed.
+% We can do this since $C_R$ and $U_R$ are already variables in a integer constraint programming system, which allows us to assign ranges to them just like concrete values.
+
+% This expansion is needed to avoid rejecting valid fusable loop invariants by propagating the computation/non-computation of a region through the series of loops in which it isn't used while also ensuring that constraints that come from earlier loops are satisfied.
+
+\printbibliography{}
 \end{document}
