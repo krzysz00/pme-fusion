@@ -1,5 +1,5 @@
 #!/usr/bin/env swipl
-:- use_module(pme_fusion).
+:- use_module('../pme_fusion').
 
 :- consult(common_task_lists).
 

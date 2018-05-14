@@ -1,5 +1,5 @@
 #!/usr/bin/env swipl
-:- use_module(pme_fusion).
+:- use_module('../pme_fusion').
 
 :- consult(common_task_lists).
 
@@ -20,7 +20,7 @@ lu_tasks(Out) :-
 
 lu_factorization :-
     lu_tasks(LUTasks),
-    test_task_lists_dedup([LUTasks], 5).
+    test_task_lists([LUTasks], 5).
 
 lu_then_invert :-
     lu_tasks(LUTasks),
@@ -28,7 +28,7 @@ lu_then_invert :-
                 lbl, lbr, lbl, lbr, LInvTasks),
     trinv_tasks(utl,      utl,
                 utr, ubr, utr, ubr, UInvTasks),
-    test_task_lists_dedup([LUTasks, LInvTasks, UInvTasks], 5).
+    test_task_lists([LUTasks, LInvTasks, UInvTasks], 5).
 
 general_inverse :-
     lu_tasks(LUTasks),
@@ -38,6 +38,6 @@ general_inverse :-
                 utr, ubr, utr, ubr, UInvTasks),
     trtrmm_ul_tasks(atl, atr, utl, utr, ltl,
                     abl, abr,      ubr, lbl, lbr, TrTrMMTasks),
-    test_task_lists_dedup([LUTasks, LInvTasks, UInvTasks, TrTrMMTasks], 5).
+    test_task_lists([LUTasks, LInvTasks, UInvTasks, TrTrMMTasks], 5).
 
 main :- general_inverse.

@@ -1,0 +1,45 @@
+[% LU <- A
+ [% TL
+  op_eq(tilde(l_tl), lu(hat(a_tl))),
+  comes_from(tilde(u_tl), tilde(l_tl)),
+  % BL
+  eq(tilde(l_bl), trsm(tilde(l_tl), hat(l_bl))),
+  % TR
+  eq(tilde(u_tr), trsm(tilde(l_tl), hat(u_tr))),
+  % BR
+  eq(during(a_br, 0), sub(hat(a_br), mul(tilde(l_bl), tilde(u_tr)))),
+  op_eq(tilde(l_br), lu(during(a_br, 0))),
+  comes_from(tilde(u_br), tilde(l_br))],
+ % L <- L^{-1}
+ [% TL
+  op_eq(tilde(l_tl), inverse(hat(InTl))),
+  % BL
+  eq(during(l_bl, 0, a),
+     mul(any([during(l_bl, 0, b), hat(l_bl)]), tilde(l_tl))),
+  eq(during(l_bl, 0, b),
+     mul(any([during(l_bl, 0, a), hat(l_bl)]), hat(l_br))),
+  % BR
+  op_eq(tilde(l_br), inverse(hat(l_br)))],
+ % U <- U^{-1}
+ [% TL
+  op_eq(tilde(u_tl), inverse(hat(InTl))),
+  % TR
+  eq(during(u_tr, 0, a),
+     mul(any([during(u_tr, 0, b), hat(u_tr)]), tilde(u_tl))),
+  eq(during(u_tr, 0, b),
+     mul(any([during(u_tr, 0, a), hat(u_tr)]), hat(u_br))),
+  % BR
+  op_eq(tilde(u_br), inverse(hat(u_br)))],
+ % A <- UL
+ [% TL
+  op_eq(during(a_tl, 0, a), add(mul(hat(u_tl), hat(l_tl)),
+                                any([hat(a_tl), during(a_tl, 0, b)]))),
+  eq(during(a_tl, 0, b), add(mul(hat(u_tr), hat(l_bl)),
+                             any([hat(a_tl), during(a_tl, 0, a)]))),
+  % TR
+  eq(tilde(a_tr), add(hat(a_tr), mul(hat(u_tr), hat(l_br)))),
+  % BL
+  eq(tilde(a_bl), add(hat(a_bl), mul(hat(u_br), hat(l_bl)))),
+  % BR
+  op_eq(tilde(a_br), add(hat(a_br), mul(hat(u_br), hat(l_br))))]
+].
