@@ -7,13 +7,14 @@ objects other than matrices).
 
 ## Installation
 You do not need to take any action to install this program. If you do
-choose to install it, move [gen_invariants.pl] and [pme_fusion.pl]
-into the same directory.
+choose to install it, move [gen_invariants.pl](gen_invariants.pl)
+and [pme_fusion.pl](pme_fusion.pl) into the same directory.
 
 ## Usage
-The syntax of the input format is located in [docs/pme_fusion.html].
+The syntax of the input format is located in
+[doc/pme_fusion.html](doc/pme_fusion.pl).
 
-The main library is in [pme_fusion.pl].
+The main library is in [pme_fusion.pl](pme_fusion.pl).
 
 One (recommended) way to use the library is the [gen_invariants.pl]
 script, which takes a list of PMEs, each expressed as a list of tasks
@@ -61,4 +62,3 @@ GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
 along with pme-fusion. If not, see <http://www.gnu.org/licenses/>.
-
