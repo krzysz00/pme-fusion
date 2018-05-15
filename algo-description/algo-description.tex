@@ -19,7 +19,7 @@
 \input{flatex}
 
 \newcommand*{\opF}{\mathcal{F}}
-\newcommand*{\opf}{\mathcal{f}}
+\newcommand*{\opf}{f}
 
 \title{The document where I explain my algorithm}
 \author{Krzysztof A. Drewniak}
@@ -35,16 +35,16 @@ It should be noted that $\opF$ does not necessarily depend on $\hat{A}$, such as
 
 Throughout this paper, we may omit the set of read-only operands if they clutter the presentation.
 
-In the FLAME approach, the object being operated on is divided into regions, and the algorithm progresses by ``moving'' values between regions.
+In the FLAME approach, the object being operated on is divided into regions, and the algorithm progresses by ``moving'' values between regions by performing computations.
 Each region (and therefore the whole of $A$) is constrained by a loop invariant, which must hold at the beginning of the algorithm and after each iteration of the algorithm's loop.
 At the beginning of the algorithm, all of $A$ is assigned to some region $P$, which must have a loop invariant that causes $A_P$ to be equal to $\hat{A}$ at that time.
 This leaves all of the other regions empty.
-During the algorithm, values are moved from $A_P$ to other regions, with the goal of ending the computation with all values in a region $Q$ such that $A_Q = \widetilde{A}$ on termination.
-The algorithm is determined by its loop invariant, as the body of the loop is found by determining the computations needed to allow the sizes of regions to change while respecting the loop invariant.
+During the algorithm, values are moved from $A_P$ to other regions, with the goal of eventually putting them all in a region $Q$ such that $A_Q = \widetilde{A}$ at the end of the computation.
+The algorithm is determined by its loop invariant, as the body of the loop is created by identifying the computations needed to allow the sizes of regions to change while respecting the loop invariant.
 
 Loop invariants (and therefore algorithm) for some $\opF$ can also be found systematically.
 This process begins by forming the \emph{partitioned matrix expression} (PME) for $\opF$.
-This consists of partitioning $A$ (and therefore $\hat{A}$ and $\widetilde{A}$) into a series of regions $A_R$ and finding the $\opF_R$ that correspond to the computations needed to compute each region (which may involve some algebra).
+This consists of partitioning $A$ (and therefore $\hat{A}$ and $\widetilde{A}$) into a series of regions $A_R$ and finding the $\opF_R$ that correspond to the operations needed to compute each region (which may involve some algebra).
 This process may also require some of the read-only operands to be partitioned, though those partitionings need not be the same as the one used for $A$.
 
 As an example, if $A$ is a general matrix, we could partition it using a $2 \times 2$ grid of regions to form the following PME
@@ -57,11 +57,11 @@ From the PME, we can find potential loop invariants by partitioning each $\opF_R
 These are two functions, which may be the identity, such that $\opF_R(\hat{A}_R) = \opf'_R(\opf_R(\hat{A}_R))$.
 In this formalism, the remainder represents computations that have not yet been performed at some particular iteration of the loop.
 
-Not all collections of such function partitionings form a loop invariant, as there are two global constraints on a loop invariant.
-The first,  mentioned above in different terms, is that there must be distinct regions $P$ and $Q$ such that $P$ has the operation that $\opF$ performs in its remainder and $Q$ has that operation in the invariant.
+Not all collections of such function partitionings form a loop invariant.
+The first condition on these partitionings, mentioned above in different terms, is that there must be distinct regions $P$ and $Q$ such that $P$ has the operation that $\opF$ performs in its remainder and $Q$ has that operation in the invariant.
 This ensures that the algorithm can make progress by changing region sizes to shrink $P$ and expand $Q$.
 
-The second constraint is that loop invariants and remainders must respect data dependencies.
+The second condition is that loop invariants and remainders must respect data dependencies.
 That is, no $\opf_R$ can read from a memory state that has not yet been computed, not can an $\opf'_R$ read from a state that has been overwritten by previous computations.
 If both of these constraints are satisfied, the collection of partitionings becomes a loop invariant for $\opF$.
 
@@ -78,11 +78,11 @@ If we partition $A$ in the specification, we can derive the PME (with $*$ repres
 \end{align*}
 
 From this PME, we can find the following three loop invariants:
-\begin{equation*}
-  \FlaTwoByTwo{A_{TL} = CHOL(\hat{A}_{TL})}{*}{A_{BL} = \hat{A}_{BL}}{A_{BR} = \hat{A}_{BR}} \qquad
-  \FlaTwoByTwo{A_{TL} = CHOL(\hat{A}_{TL})}{*}{A_{BL} = \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}{A_{BR} = \hat{A}_{BR}} \qquad
-  \FlaTwoByTwo{A_{TL} = CHOL(\hat{A}_{TL})}{*}{A_{BL} = \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}{A_{BR} = \hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T}
-\end{equation*}
+\begin{align*}
+  &\FlaTwoByTwo{A_{TL} = CHOL(\hat{A}_{TL})}{*}{A_{BL} = \hat{A}_{BL}}{A_{BR} = \hat{A}_{BR}} \qquad
+  \FlaTwoByTwo{A_{TL} = CHOL(\hat{A}_{TL})}{*}{A_{BL} = \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}{A_{BR} = \hat{A}_{BR}}\\
+  &\FlaTwoByTwo{A_{TL} = CHOL(\hat{A}_{TL})}{*}{A_{BL} = \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}{A_{BR} = \hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T}
+\end{align*}
 
 In the algorithms that arise from all of these loop invariants, the entire matrix begins in $A_{BR}$ and moves to $A_{TL}$ as computations are performed.
 It is worth noting that the third loop invariant is still valid since $A_{BR}$ is equal to $\hat{A}_{BR}$ initially, because the $A_{BL}$ region is empty, rendering the subtraction irrelevant at that time.
@@ -98,11 +98,11 @@ If we have a series of $n$ operations $\widetilde{A}^0 = \opF^0(\hat{A}_0); \wid
 over the same object $A$ (that is, for all $i$, $\hat{A}^i = \widetilde{A}^{i - 1}$), \emph{loop fusion} is the process of finding an algorithm for $\widetilde{A}^{n - 1} = \opF(\hat{A}^0)$ that only iterates through $A$ once.
 
 Such loop fusion is achieved by taking the loop bodies from an algorithm for each $\opF^i$ and concatentating them to create one fused loop.
-However, this operation only produces a correct algorithm for $\opF$ when the loop invariants for each loop being fused satisfy certain additional constraint, which were first set out in \mycite{Low2013}.
+However, this operation only produces a correct algorithm for $\opF$ when the loop invariants for each loop being fused satisfy certain additional conditions, which were first set out in \mycite{Low2013}.
 
-For the purposes of these conditions, a region $R$4 is \emph{fully computed} in the $k$the loop invariant if $\opf_R^{k'}$ is the identity, and it is \emph{uncomputed} if $\opf_R^k$ is the identity.
+For the purposes of these conditions, a region $R$4 is \emph{fully computed} in the $k$th loop if $\opf_R^{k'}$ is the identity, and it is \emph{uncomputed} if $\opf_R^k$ is the identity.
 
-The first condition is that, if the $i + 1$st loop invariant depends on the values in a region $R$ (in a way that isn't simply $A_R = \hat{A}_R$), then $R$ must be fully computed by the $i$th loop invariant, or else the assumption that $\hat{A}^{i + 1}_R = \widetilde{A}^i_R$ that $\opf^i$ relies on for correctness would be violated.
+The first condition is that, if the $i + 1$st loop invariant depends on the values in a region $R$ (in a way that isn't simply $A_R = \hat{A}_R$), then $R$ must be fully computed by the $i$th loop invariant, or else the assumption that $\hat{A}^{i + 1}_R = \widetilde{A}^i_R$ that $\opf^{i + 1}$ relies on for correctness would be violated.
 Similarly, if the $i$th loop invariant depends on $A_R$ to compute its remainder, then, for all $j > i$, $R$ must be uncomputed by the $j$th invariant, or else the work that the $i$th loop will perform in the future will use incorrect values because $A_R$ no longer maintains the expected state.
 
 Finding loop invariants by hand is a process that can quickly grow tedious.
@@ -126,16 +126,15 @@ This indicates that an algorithm that only computes $A_{BR, 0}$ is an option we 
 The extended $A_{R, (n, x)}$ notation is needed for cases such as $\widetilde{A}_R = B\hat{A}_RC$, where there are multiple possible ways to split the expression that lead to valid algorithms.
 We could partition it as $A_{R, 0} = B\hat{A}_R; \widetilde{A}_R = A_{R, 0}C$, or as $A_{R, 0} = \hat{A}_RC; \widetilde{A}_R = BA_{R, 0}$.
 To represent both of these possibilities, we will write the expression as $A_{R, (0, a)} = B(\hat{A}_R \vee A_{R, (0, b)}); A_{R, (0, b)} = (\hat{A}_R \vee A_{R, (0, a)})C$, where the ors indicate that either state can be used to begin the computation.
-(The final state $\widetilde{A}$ is implied by executing both tasks.)
+(The final state $\widetilde{A}_R$ is implied by executing both tasks.)
 
 This notation allows us to represent each region $R$ in the PME as a set of tasks $T_R$, each of which brings $R$ into some state and depends on a set of operands, which may be particular memory states of $R$ or other regions.
 In this model, the loop invariant is the set of past tasks $P_{R}$, and the remainder is the set of future tasks $F_{R}$, such that $T_R$ is the union of the past and future, which are disjoint.
 We can abstract this representation further to simplify the description and implementation of the algorithm.
-We can write each task as $A_{R, \sigma} \coloneqq I_{R, \sigma}$ for some set of inputs $I$, which are (disjunctions of) symbols of the form $M_{R, \sigma}$ for some object $M$, region $R$ of $A$, and memory state $\sigma$.
+We can write each task as $A_{R, \sigma} \coloneqq I_{R, \sigma}$ for some set of inputs $I_{R, \sigma}$, which are (disjunctions of) symbols of the form $M_{R, \sigma}$ for some object $M$, region $R$ of $M$, and memory state $\sigma$.
 For uniformity, we represent $\hat{A}_R$ as $A_{R, \bot}$ and $\widetilde{A}_R$ as $A_{R, \top}$ for uniformity.
 
 One potential complication with this abstraction loses information on which tasks represent the main operation of the algorithm we are searching for, which is information needed to verify that a loop makes progress.
-To resolve this, tasks can be tagged as the main operation by writing the assignment operator as $\coloneqq_O$.
 Tasks with such a tag are \emph{operation tasks}.
 
 In this representation, a region is fully computed when $P_R = T_R$, and uncomputed if $T_R = F_R$.
@@ -197,10 +196,11 @@ The algorithm presented above can be extended to cases where operations update d
 This operation updates two matrices, $y$ and $L$, and the updates can be fused together.
 Most of the algorithm proceeds unmodified with the observation that regions of different matrices are distinct.
 
-However, there is one necessary change, which involves empty regions (which contain no tasks), which must be added to loops that do not look at an operand, in order to ensure that all strips have the same length.
-Adding empty regions only requires one alteration to the search procedure, since empty regions are, by definition, uncomputed, which ensures any empty regions will be skipped by the anti-duplication filter (and an initial empty region will test the case of all actual regions being uncomputed).
+We do, however, need to add empty regions (regions with no tasks), which must be added to some loop invariants to ensure that all strips have the same length.
+Adding empty regions does not add duplicate or incorrect results, since empty regions are, by definition, uncomputed, which ensures any empty regions will be skipped by the anti-duplication filter (and an initial empty region will test the case of all actual regions being uncomputed).
 
-However, the constraints on $C_R$ and $U_R$ must be made somewhat more complex, as, for different constraints, it could be useful to consider either the index of the actual last computed/first uncomputed region or the index of any of the empty regions following it.
+Empty regions do require us to make the constraints on $C_R$ and $U_R$ more complex, as, in different contexts, it is necessary to consider either the index of the actual last computed/first uncomputed region or the index of any of the empty regions immediately following it.
+Since the empty regions do not have any tasks, allowing $C_R$ and $U_R$ to float into them does not affect the correctness of the search.
 Therefore, instead of imposing an equality constraint on $C_R$ and $U_R$ after the strip $S_R$ is partitioned, we bound the values between the index of the last computed/first uncomputed region in the strip and the index end of the sequence of empty regions (if there are any) following that region.
 With this change, the algorithm operates correctly for problems where empty regions needed to be inserted.
 
@@ -212,7 +212,7 @@ To prevent spurious results, we impose the condition that $B^i_Q$ is computed if
 
 \section{Implementation}
 Our implementation is a fairly direct translation of the algorithm presented above into SWI Prolog, using the \texttt{clpfd} to handle integer constraint.
-The input to our program is PMEs for each operation,  written as a series of tasks.
+The input to our program is PMEs for each operation, written as the set of tasks that appear in any regions.
 We allow the description of a task to nest the operands to the task in arbitrary terms, which are ignored.
 
 % For simplicity, we'll start off by presenting this algorithm for loops over one matrix without additional inputs.
