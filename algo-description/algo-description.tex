@@ -102,7 +102,7 @@ However, this operation only produces a correct algorithm for $\opF$ when the lo
 
 For the purposes of these conditions, a region $R$4 is \emph{fully computed} in the $k$th loop if $\opf_R^{k'}$ is the identity, and it is \emph{uncomputed} if $\opf_R^k$ is the identity.
 
-The first condition is that, if the $i + 1$st loop invariant depends on the values in a region $R$ (in a way that isn't simply $A_R = \hat{A}_R$), then $R$ must be fully computed by the $i$th loop invariant, or else the assumption that $\hat{A}^{i + 1}_R = \widetilde{A}^i_R$ that $\opf^{i + 1}$ relies on for correctness would be violated.
+The first condition is that, if the $i + 1$st loop invariant depends on the values in a region $R$ (in a way that is not simply $A_R = \hat{A}_R$), then $R$ must be fully computed by the $i$th loop invariant, or else the assumption that $\hat{A}^{i + 1}_R = \widetilde{A}^i_R$ that $\opf^{i + 1}$ relies on for correctness would be violated.
 Similarly, if the $i$th loop invariant depends on $A_R$ to compute its remainder, then, for all $j > i$, $R$ must be uncomputed by the $j$th invariant, or else the work that the $i$th loop will perform in the future will use incorrect values because $A_R$ no longer maintains the expected state.
 
 Finding loop invariants by hand is a process that can quickly grow tedious.
@@ -234,20 +234,29 @@ The operations needed to invert a symmetric matrix $A$ are the Cholesky factoriz
   \end{equation*}
 \end{enumerate}
 
-We will not show the exhaustive search that finds the sole possible fused loop invariant for this problem, but we will go through the constraints that force this loop invariant to be chosen.
+First, let us consider possible splits of the $TL$ strip.
+Leaving all of the $TL$ regions uncomputed cannot lead to possible loop invariants, as fully computing $A_{BR}^0$ requires $A_{TL}^0$ to be fully computed.
+So, we know we need $A_{TL}^0$ to be computed.
+Because of this, we cannot fully compute $A_{BR}^0$, as this would leave no Cholesky factorizations in the remainder.
 
-Looking at the PME for the Cholesky factorization (operation 0), we observe that comptuing $\widetilde{A}^0_{BR}$ requires all regions of the matrix to be computed, which means that $A_{BR}^0$ must be either partially computed or uncomputed.
+These constraints force us to compute $A_{TL}^1$, since the inverse in $\opF_{BR}^1$ cannot be computed as the data to be inverted is not available yet and there are no other matrix inversion tasks.
+Similarly, the only operation tasks in the PME for the multiplication are in the top left and the bottom right, and teh bottom right one cannot be computed because of the fusion conditions.
+Therefore, at the very least, we must compute $A_{TL, 0}^2$ by performing $\hat{A}^2_{TL}(\hat{A}^2_{TL})^T$.
+From our analysis of $S_{TL}$ and the available operation tasks, we have shown that there are two potential options for $S_{TL}$, which only differ in whether $A_{TL}^2$ is partially or fully computed.
+In either case, we have $1 \leq C_{TL} \leq 3$ and $U_{TL} = 3$, as well as $C_{BR} = -1$ and $U_{BR} \leq 1$.
 
-This means that $A_{BR}^1$ and $A_{BR}^2$ must be uncomputed.
-In addition, we cannot compute $A_{BL, (0, b)}^1$, as the values that need to be in $A_{BR}$ are not yet available.
+Now, if we consider $S_{BL}$, we know that we must compute $A_{BL}^0$.
+If we did not, then there would be a reference to $A_{TL}^0$ in the remainder, which would mean that $3 \leq 1$ would need to be true.
+Similarly, we must compute the task $A_{BL, (0, a)}^1$ (that is, $\hat{A}_{BL}^1\widetilde{A}_{TL}^1$) for the same reason.
+However, we cannot fully compute $A^1_{BL}$, as that computation requires $C_{BR} \geq 0$.
+Because $A^1_{BL}$ is partially computed, we cannot fully compute $A_{TL}^2$ (or do any work on $A_{BL}^2$), forcing $C_{TL} = 1$.
+This analysis shows us that $C_{BL}$ must be $0$ and $U_{BL}$ must be $2$.
 
-Because we cannot fully compute $A_{BL}^1$, we also know we cannot fully compute $A_{TL}^2$, and have to leave that portion of the invariant as $A_{TL} = \hat{A}_{TL}\hat{A}_{TL}^T$.
-This means that we must also fully compute $A_{TL}^1$.
+These constraints on the state of the bottom left also force us to partially compute $A_{BR}^0$, since, if we did not, we could never perform the computation, since the bottom left would be overwritten by progress on the inverse.
+More formally, leaving $A_{BR}^0$ uncomputed would require $U_{BL} \leq 1$, which is not compatible with $U_{BL} = 2$.
+Therefore, $U_{BR} = 1$ and we completely specified the partitionings for each strip.
 
-Because $A_{TL}^1$ is fully computed, we must compute the $\hat{A}_{BL}\widetilde{A}_{TL}$ product in the Cholesky algorithm in the loop invariant, since otherwise the information needed to compute that product will be overwritten later.
-Similarly, we need to perform the partial computation of $A_{BL, (0, a)}$ in the algorithm for the inverse, or else the relevant information will be overwritten by the multiplication.
-
-These constraints show that we have a unique sequence of loop invariants, namely
+While determining that these splits are the only ones that can lead to fusable invariants, we have also shown above there is only one partitioning of the partially computed regions that leads to a valid sequence of loop invariants, which is:
 \begin{enumerate}
 \item
   \begin{equation*}
