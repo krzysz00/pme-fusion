@@ -210,6 +210,63 @@ Our system represents such operations as a series of tasks that updates one of t
 The dependency enforcement mechanisms prevent this task from being completed unless $A^i_P$ is fully computed.
 To prevent spurious results, we impose the condition that $B^i_Q$ is computed if only if $A^i_P$ is.
 
+\subsection{An example}
+To demonstrate the operation of this theory, we can consider the inversion of a symmetric matrix, given by the following three task based PMEs. (We will tag operation tasks with $\coloneqq_O$).
+The operations needed to invert a symmetric matrix $A$ are the Cholesky factorization, followed by a triangular inverse and the multiplication $AA^{T}$.
+
+\begin{enumerate}
+\setcounter{enumi}{-1} % One less than 1st element number
+\item
+  \begin{equation*}
+  \FlaTwoByTwo{\widetilde{A}_{TL} \coloneqq_O CHOL(\hat{A}_{TL})}{*}
+  {\widetilde{A}_{BL} \coloneqq \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}{A_{BR, 0} \coloneqq \hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T; \widetilde{A}_{BR} \coloneqq_O CHOL(A_{BR, 0})}
+  \end{equation*}
+\item
+  \begin{equation*}
+    \FlaTwoByTwo{\widetilde{A}_{TL} \coloneqq_O \hat{A}_{TL}^{-1}}{*}
+    {A_{BL, (0, a)} \coloneqq (\hat{A}_{BL} \vee A_{BL, (0, b)}) \cdot \widetilde{A}_{TL}; A_{BL, (0, b)} \coloneqq -\hat{A}_{BR}^{-1} \cdot (\hat{A}_{BL} \vee A_{BL, (0, a)})}
+    {\widetilde{A}_{BR} \coloneqq \hat{A}_{BR}^{-1}}
+  \end{equation*}
+\item
+  \begin{equation*}
+    \FlaTwoByTwo{A_{TL, 0} \coloneqq_O \hat{A}_{TL}\hat{A}_{TL}^T; \widetilde{A}_{TL} \coloneqq A_{TL, 0} + \hat{A}_{BL}^T\hat{A}_{BL}}{*}
+    {\widetilde{A}_{BL} \coloneqq \hat{A}_{BR}\hat{A}_{BL}^T}{\widetilde{A}_{BR} \coloneqq_O \hat{A}_{BR}\hat{A}_{BR}^T}
+  \end{equation*}
+\end{enumerate}
+
+We will not show the exhaustive search that finds the sole possible fused loop invariant for this problem, but we will go through the constraints that force this loop invariant to be chosen.
+
+Looking at the PME for the Cholesky factorization (operation 0), we observe that comptuing $\widetilde{A}^0_{BR}$ requires all regions of the matrix to be computed, which means that $A_{BR}^0$ must be either partially computed or uncomputed.
+
+This means that $A_{BR}^1$ and $A_{BR}^2$ must be uncomputed.
+In addition, we cannot compute $A_{BL, (0, b)}^1$, as the values that need to be in $A_{BR}$ are not yet available.
+
+Because we cannot fully compute $A_{BL}^1$, we also know we cannot fully compute $A_{TL}^2$, and have to leave that portion of the invariant as $A_{TL} = \hat{A}_{TL}\hat{A}_{TL}^T$.
+This means that we must also fully compute $A_{TL}^1$.
+
+Because $A_{TL}^1$ is fully computed, we must compute the $\hat{A}_{BL}\widetilde{A}_{TL}$ product in the Cholesky algorithm in the loop invariant, since otherwise the information needed to compute that product will be overwritten later.
+Similarly, we need to perform the partial computation of $A_{BL, (0, a)}$ in the algorithm for the inverse, or else the relevant information will be overwritten by the multiplication.
+
+These constraints show that we have a unique sequence of loop invariants, namely
+\begin{enumerate}
+\item
+  \begin{equation*}
+  \FlaTwoByTwo{A_{TL}  = CHOL(\hat{A}_{TL})}{*}
+  {A = \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}{A_{BR} = \hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T}
+  \end{equation*}
+\item
+  \begin{equation*}
+    \FlaTwoByTwo{A_{TL} = \hat{A}_{TL}^{-1}}{*}
+    {A_{BL} = A_{BL, (0, b)}\widetilde{A}_{TL}}
+    {A_{BR} =  \hat{A}_{BR}}
+  \end{equation*}
+\item
+  \begin{equation*}
+    \FlaTwoByTwo{A_{TL} = \hat{A}_{TL}\hat{A}_{TL}^T}{*}
+    {A_{BL} = \hat{A}_{BL}}{A_{BR} = \hat{A}_{BR}}
+  \end{equation*}
+\end{enumerate}
+
 \section{Implementation}
 Our implementation is a fairly direct translation of the algorithm presented above into SWI Prolog, using the \texttt{clpfd} to handle integer constraint.
 The input to our program is PMEs for each operation, written as the set of tasks that appear in any regions.
