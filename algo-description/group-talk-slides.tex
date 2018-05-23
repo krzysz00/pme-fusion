@@ -1,0 +1,217 @@
+\documentclass{beamer}
+
+\usepackage{mathtools,amsthm,cancel}
+\DeclarePairedDelimiter\ceil{\lceil}{\rceil}
+\DeclarePairedDelimiter\floor{\lfloor}{\rfloor}
+
+\newcommand*{\mycite}[1]{~\cite{#1}}
+
+\usepackage{hyperref}
+
+\usepackage{biblatex}
+\addbibresource{cites.bib}
+
+\input{flatex}
+
+\newcommand*{\opF}{\mathcal{F}}
+\newcommand*{\opf}{f}
+\def\?#1{}
+
+\useoutertheme{infolines}
+\setbeamertemplate{navigation symbols}{}
+
+\title[Loop fusion]{Automated High-Level Loop Fusion for FLAME Algorithms}
+\author[Drewniak]{Krzysztof A. Drewniak}
+\institute[CMU]{Carnegie Mellon University}
+\date[]{June TODO, 2018}
+
+\begin{document}
+\begin{frame}[plain]
+  \titlepage{}
+\end{frame}
+
+\begin{frame}
+  \frametitle{High-level loop fusion}
+  \begin{itemize}
+  \item Problems often are a series of subproblems
+  \item Combining subalgorithms often helps performance
+  \item Goal: find all the fused algorithms for a problem
+  \item Compilers know too many details - need a high level approach
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{FLAME algorithms, loop invariants}
+  \begin{itemize}
+  \item FLAME = Formal Linear Algebra Methods Eenvironments
+  \item Provably correct algorithms from spec
+  \item Algorithms $\Leftrightarrow$ loop invariants
+  \item We know how to:
+    \begin{itemize}
+    \item Autogenerate algorithm/code from loop invariant
+    \item Autogenerate all possible loop invariants
+    \item Identify when fusion is possible (in theory)
+    \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{What we add}
+  \begin{itemize}
+  \item Autogenerate all sets of fusable loop invariants
+  \item Input is \emph{partitioned matrix expression} --- indicates needed computations
+  \item Can be used to generate code
+  \end{itemize}
+\end{frame}
+
+\section*{FLAME}
+
+\begin{frame}
+  \frametitle{Goal}
+  Want to compute
+  \begin{columns}
+    \begin{column}{0.5\textwidth}
+      \begin{equation*}
+        \widetilde{A} = \opF(\hat(A), \underbrace{\ldots}_{O})
+      \end{equation*}
+    \end{column}
+    \begin{column}{0.5\textwidth}
+      \begin{equation*}
+        \widetilde{A} = CHOL(\hat{A})
+      \end{equation*}
+    \end{column}
+  \end{columns}
+
+  $\hat{A}$ and $\widetilde{A}$ share memory ($A$).
+
+  Initially, $A = \hat{A}$.
+
+  At termination, $A = \widetilde{A}$.
+\end{frame}
+
+\begin{frame}
+  \frametitle{Algorithm structure}
+  \begin{FlameAlg}
+    \FlaPartition{ $A \rightarrow \FlaTwoByTwo{A_{TL}}{A_{TR}}{A_{BL}}{A_{BR}}$}{\\
+      $\quad$ where $\operatorname{dim}(A_{TL}) = 0 \times 0$}\\
+    \FlaDoUntil{ $\operatorname{dim}(A_{TL}) = n \times n$}\\
+    \FlaRepartition{$\FlaTwoByTwo{A_{TL}}{A_{TR}}{A_{BL}}{A_{BR}}%
+      \rightarrow \FlaThreeByThreeBR{A_{00}}{a_{01}}{A_{02}}%
+      {a_{10}^T}{\alpha_{11}}{a_{12}^T}%
+      {A_{02}}{a_{21}}{A_{22}}$}\\
+    $\?[\vdots]\text{ loop body}$\\ % Make the balanced braces check shut up
+    \FlaContinue{$\FlaTwoByTwo{A_{TL}}{A_{TR}}{A_{BL}}{A_{BR}} \leftarrow{}%
+      \FlaThreeByThreeTL{A_{00}}{a_{01}}{A_{02}}%
+      {a_{10}^T}{\alpha_{11}}{a_{12}^T}%
+      {A_{20}}{a_{21}}{A_{22}}$}\\
+    \FlaEndDo{}
+  \end{FlameAlg}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Algoriithm example}
+  \begin{FlameAlg}
+    \FlaPartition{ $A \rightarrow \FlaTwoByTwo{A_{TL}}{*}{A_{BL}}{A_{BR}}$}{\\
+      $\quad$ where $\operatorname{dim}(A_{TL}) = 0 \times 0$}\\
+    \FlaDoUntil{ $\operatorname{dim}(A_{TL}) = n \times n$}\\
+    \FlaRepartition{$\FlaTwoByTwo{A_{TL}}{*}{A_{BL}}{A_{BR}}%
+      \rightarrow \FlaThreeByThreeBR{A_{00}}{*}{*}%
+      {a_{10}^T}{\alpha_{11}}{*}%
+      {A_{02}}{a_{21}}{A_{22}}$}\\
+    $\alpha_{11} \coloneqq \sqrt{\alpha_{11}}$\\
+    $a_{21} \coloneqq a_{21} / \alpha_{11}$\\
+    $A_{22} \coloneqq A_{22} - a_{21}a_{21}^T$\\
+    \FlaContinue{$\FlaTwoByTwo{A_{TL}}{*}{A_{BL}}{A_{BR}} \leftarrow{}%
+      \FlaThreeByThreeTL{A_{00}}{*}{*}%
+      {a_{10}^T}{\alpha_{11}}{*}%
+      {A_{20}}{a_{21}}{A_{22}}$}\\
+    \FlaEndDo{}
+  \end{FlameAlg}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Partitioned Matrix Expressions}
+  \begin{itemize}
+  \item Take $A$ (and maybe other stuff), split it into regions.
+  \item Lines between regions move during algorithm
+  \end{itemize}
+  \begin{equation*}
+    \FlaTwoByTwo{\widetilde{A}_{TL} = \opF_{TL}(\hat{A}, \ldots)}{\widetilde{A}_{TR} = \opF_{TR}(\hat{A}, \ldots)}
+    {\widetilde{A}_{BL} = \opF_{BL}(\hat{A}, \ldots)}{\widetilde{A}_{BR} = \opF_{BR}(\hat{A}, \ldots)}
+  \end{equation*}
+
+  \begin{equation*}
+    \FlaTwoByTwo{\widetilde{A}_{TL} = CHOL(\hat{A}_{TL})}{*}
+    {\widetilde{A}_{BL} = \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}
+    {\widetilde{A}_{BR} = CHOL(\hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T)}
+  \end{equation*}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Loop invariants}
+  \begin{itemize}
+  \item Find $\opf_R$ and $\opf'_R$ so $\opF_R(\hat{A}) = \opf'(\opf(\hat{A}))$.
+  \item $\opf_R$ is loop invariant for $R$, $\opf'_R$ is remainder
+  \item Invariant for algorithm is an invariant per region
+  \item Completely determine algorithm
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{This is a loop invariant}
+  Starting from Cholesky's PME:
+  \begin{equation*}
+    \FlaTwoByTwo{\widetilde{A}_{TL} = CHOL(\hat{A}_{TL})}{*}
+    {\widetilde{A}_{BL} = \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}
+    {\widetilde{A}_{BR} = CHOL(\hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T)}
+  \end{equation*}
+
+  We obtain
+  \begin{equation*}
+    \FlaTwoByTwo{A_{TL} = CHOL(\hat{A}_{TL})}{*}
+    {A_{BL} = \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}
+    {A_{BR} = \hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T}
+  \end{equation*}
+\end{frame}
+
+\begin{frame}
+  \frametitle{As are these}
+  \begin{equation*}
+    \FlaTwoByTwo{A_{TL} = CHOL(\hat{A}_{TL})}{*}
+    {A_{BL} = \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}
+    {A_{BR} = \hat{A}_{BR}}
+  \end{equation*}
+
+  \begin{equation*}
+    \FlaTwoByTwo{A_{TL} = CHOL(\hat{A}_{TL})}{*}
+    {A_{BL} = \hat{A}_{BL}}
+    {A_{BR} = \hat{A}_{BR}}
+  \end{equation*}
+\end{frame}
+
+\begin{frame}
+  \frametitle{But not these}
+  \begin{equation*}
+    \FlaTwoByTwo{A_{TL} = CHOL(\hat{A}_{TL})}{*}
+    {A_{BL} = \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}
+    {A_{BR} = CHOL(\hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T)}
+  \end{equation*}
+
+  \begin{equation*}
+    \FlaTwoByTwo{A_{TL} = \hat{A}_{TL}}{*}
+    {A_{BL} = \hat{A}_{BL}}
+    {A_{BR} = \hat{A}_{BR}}
+  \end{equation*}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Or this}
+  \begin{equation*}
+    \FlaTwoByTwo{A_{TL} = \hat{A}_{TL}}{*}
+    {A_{BL} = \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}
+    {A_{BR} = \hat{A}_{BR}}
+  \end{equation*}
+\end{frame}
+
+
+\end{document}

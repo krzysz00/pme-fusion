@@ -35,7 +35,23 @@ It should be noted that $\opF$ does not necessarily depend on $\hat{A}$, such as
 
 Throughout this paper, we may omit the set of read-only operands if they clutter the presentation.
 
+\begin{figure}[t]
+  \def\?#1{}
+  \centering
+  \begin{FlameAlg}
+    \FlaPartition{ $x \rightarrow \FlaTwoByOne{x_T}{x_B}$}{ where $\operatorname{length}(x_T) = 0$}\\
+    \FlaDoUntil{ $\operatorname{length}(x_T) = n$}\\
+      \FlaRepartition{$\FlaTwoByOne{x_T}{x_B} \rightarrow \FlaThreeByOneB{x_0}{\chi_1}{x_2}$}\\
+      $\?[\vdots]\text{ loop body}$\\ % Make the balanced braces check shut up
+      \FlaContinue{$\FlaTwoByOne{x_T}{x_B} \leftarrow{} \FlaThreeByOneT{x_0}{\chi_1}{x_2}$}\\
+    \FlaEndDo{}
+  \end{FlameAlg}
+  \caption{The structure of an algorithms produced by the FLAME method. This example shows the skeleton of an algoritm with a $2 \times 1$ partitioning that moves from top to bottom.}%
+  \label{fig:alg_struct}
+\end{figure}
+
 In the FLAME approach, the object being operated on is divided into regions, and the algorithm progresses by ``moving'' values between regions by performing computations.
+An example of this algorithm structure can be found in Figure \ref{fig:alg_struct}.
 Each region (and therefore the whole of $A$) is constrained by a loop invariant, which must hold at the beginning of the algorithm and after each iteration of the algorithm's loop.
 At the beginning of the algorithm, all of $A$ is assigned to some region $P$, which must have a loop invariant that causes $A_P$ to be equal to $\hat{A}$ at that time.
 This leaves all of the other regions empty.
@@ -49,8 +65,8 @@ This process may also require some of the read-only operands to be partitioned, 
 
 As an example, if $A$ is a general matrix, we could partition it using a $2 \times 2$ grid of regions to form the following PME
 \begin{equation*}
-  \FlaTwoByTwo{\widetilde{A}_{TL} = \opF_{TL}(\hat{A}_{TL})}{\widetilde{A}_{TR} = \opF_{TR}(\hat{A}_{TR})}
-  {\widetilde{A}_{BL} = \opF_{BL}(\hat{A}_{BL})}{\widetilde{A}_{BR} = \opF_{BR}(\hat{A}_{BR})},
+  \FlaTwoByTwo{\widetilde{A}_{TL} = \opF_{TL}(\hat{A})}{\widetilde{A}_{TR} = \opF_{TR}(\hat{A})}
+  {\widetilde{A}_{BL} = \opF_{BL}(\hat{A})}{\widetilde{A}_{BR} = \opF_{BR}(\hat{A})},
 \end{equation*}
 
 From the PME, we can find potential loop invariants by partitioning each $\opF_R$ into a (potential) loop invariant $\opf_R$ and remainder $\opf'_R$.
