@@ -1,0 +1,19 @@
+[
+    % Cholesky
+    [%Top left
+     op_eq(tilde(l_tl), chol(hat(l_tl))),
+     %Bottom left
+     eq(tilde(l_bl), trsm(tilde(l_tl), hat(l_bl))),
+     %Bottom right
+     eq(during(l_br, 0), sub(hat(l_br), mul(tilde(l_bl), tr(tilde(l_bl))))),
+     op_eq(tilde(l_br), chol(during(l_br, 0)))
+    ],
+    % Lower triangular solve
+    [
+     %Top
+     op_eq(tilde(b_t), trslv(hat(l_tl), hat(b_t))),
+     %Bottom
+     eq(during(b_b, 0), sub(hat(b_b), mul(hat(l_bl), tilde(b_t)))),
+     op_eq(tilde(b_b), trslv(hat(l_br), during(b_b, 0)))
+    ]
+].

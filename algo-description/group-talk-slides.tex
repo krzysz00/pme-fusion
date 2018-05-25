@@ -17,6 +17,36 @@
 \newcommand*{\opf}{f}
 \def\?#1{}
 
+\usepackage{tikz}
+\usetikzlibrary{calc,matrix,positioning}
+
+\tikzset{strip/.style={matrix of nodes, column sep=0.05cm,
+    nodes in empty cells,
+    nodes={draw, rectangle, minimum height=0.5cm, minimum width=0.5cm}},
+  comp/.style={fill=black},
+  uncomp/.style={fill=white},
+  partial/.style={fill=gray}}
+
+\tikzset{
+  label-brace/.style={to path={
+      (\tikztostart) ++(#1) -- ++(#1)
+      -- ($(\tikztotarget) + 2 *(#1)$) \tikztonodes
+      -- +($-1 *(#1)$)
+    }},
+  brace below/.style={label-brace={0, -3pt}},
+  brace above/.style={label-brace={0, 3pt}},
+  brace right/.style={label-brace={3pt, 0}},
+  brace left/.style={label-brace={-3pt, 0}}}
+
+\tikzset{
+  dim-label/.style={label distance=0pt,inner sep=0},
+}
+
+\newcommand*{\bracelabel}[4]{\draw (#1) to[brace #3]%
+  node[midway,label={[dim-label]#3:#4}] {} (#2)}
+
+\newcommand*{\emptyreg}[1]{\draw (#1.north west) -- (#1.south east) (#1.south west) -- (#1.north east)}
+
 \useoutertheme{infolines}
 \setbeamertemplate{navigation symbols}{}
 
@@ -29,6 +59,8 @@
 \begin{frame}[plain]
   \titlepage{}
 \end{frame}
+
+\section{Introduction}
 
 \begin{frame}
   \frametitle{High-level loop fusion}
@@ -64,7 +96,9 @@
   \end{itemize}
 \end{frame}
 
-\section*{FLAME}
+\section{FLAME}
+
+\frame{\sectionpage}
 
 \begin{frame}
   \frametitle{Goal}
@@ -213,5 +247,314 @@
   \end{equation*}
 \end{frame}
 
+\begin{frame}
+  \frametitle{Tasks}
+  \begin{itemize}
+  \item We need to specify split points
+  \end{itemize}
 
+  \begin{equation*}
+    \FlaTwoByTwo{\widetilde{A}_{TL} \coloneqq_O CHOL(\hat{A}_{TL})}{*}
+    {\widetilde{A}_{BL} \coloneqq \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}
+    {\begin{array}{c}
+       A_{BR, 0} \coloneqq \hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T;\\
+       \widetilde{A}_{BR} \coloneqq_O CHOL(A_{BR, 0})
+     \end{array}}
+  \end{equation*}
+
+  \begin{equation*}
+    \FlaTwoByTwo{\widetilde{A}_{TL} \coloneqq_O \hat{A}_{TL}^{-1}}{*}
+    {\begin{array}{c}
+       A_{BL, (0, a)} \coloneqq (\hat{A}_{BL} \vee A_{BL, (0, b)}) \cdot \widetilde{A}_{TL};\\
+       A_{BL, (0, b)} \coloneqq -\hat{A}_{BR}^{-1} \cdot (\hat{A}_{BL} \vee A_{BL, (0, a)})
+     \end{array}}
+    {\widetilde{A}_{BR} \coloneqq_O \hat{A}_{BR}^{-1}}
+  \end{equation*}
+\end{frame}
+
+\begin{frame}
+  \frametitle{More abstractly}
+  The code translates tasks to
+
+    \begin{equation*}
+    \FlaTwoByTwo{A_{TL, \top} \coloneqq_O \{A_{TL, \bot}\}}{*}
+    {A_{BL, \top} \coloneqq \{A_{BL, \bot}, A_{TL, \top}\}}
+    {\begin{array}{c}
+       A_{BR, 0} \coloneqq \{A_{BR, \bot}\, A_{BL, \top};\\
+       A_{BR, \top} \coloneqq_O \{A_{BR, 0}\}
+     \end{array}}
+  \end{equation*}
+
+  \begin{equation*}
+    \FlaTwoByTwo{A_{TL, \top} \coloneqq_O \{A_{TL, \bot}}{*}
+    {\begin{array}{c}
+       A_{BL, (0, a)} \coloneqq \{A_{BL, \bot} \vee A_{BL, (0, b)}, A_{TL, \top}\};\\
+       A_{BL, (0, b)} \coloneqq \{A_{BR, \bot}, A_{BL, \bot} \vee A_{BL, (0, a)}\}
+     \end{array}}
+    {A_{BR, \top} \coloneqq_O \{A_{BR, \bot}\}}
+  \end{equation*}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Dependencies, v2}
+  \begin{itemize}
+  \item $A_{R, \sigma}$ is before $A_{R', \sigma'}$ if:
+    \begin{itemize}
+    \item $R \neq R'$ (different regions) or
+    \item $\sigma = \bot$ and $\sigma' \neq \bot$
+    \item $\sigma \neq \top$ and $\sigma' = \top$
+    \item $\sigma = m$ (or $(m, x)$) and $\sigma' = n$ (or $(n, y)$), $m < n$
+    \item $\sigma = (n, x)$ and $\sigma' = (n, y)$, and $x \neq y$
+    \end{itemize}
+  \item If anything from am or is before, all of it is
+  \item Invariant/remainder split valid if:
+    \begin{itemize}
+    \item All past task inputs before all future task outputs
+    \item All past task outputs not after all future task inputs
+    \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Finding all invariants}
+  \begin{enumerate}
+  \item Pick a past/future split for each region
+  \item Check if the loop can make progress
+  \item Check for dependency validity
+  \end{enumerate}
+\end{frame}
+
+\section{Loop fusion}
+
+\frame{\sectionpage}
+
+\begin{frame}
+  \frametitle{States of a region}
+  \begin{description}
+  \item[Fully computed] All tasks in the invarient
+  \item[Uncomputed] All tasks in the remainder
+  \item[Partially computed] Everything else
+  \end{description}
+\end{frame}
+
+\begin{frame}
+  \frametitle{The fusion problem}
+  \begin{equation*}
+    \begin{rcases}
+      \widetilde{A}^0 &= \opF^0(\hat{A}^0)\\
+      \widetilde{A}^1 &= \opF^1(\hat{A}^1)\\
+      &\vdots\\
+      \widetilde{A}^{n - 1} &= \opF^{n - 1}(\hat{A}^{n - 1})
+    \end{rcases} \widetilde{A}^{n - 1} = \opF(\hat{A}^0)
+  \end{equation*}
+  where $\hat{A}^{i + 1} = \widetilde{A}^i$
+\end{frame}
+
+\begin{frame}
+  \frametitle{Fusion conditions}
+  \begin{equation*}
+    \hat{A}^{i + 1}_{\mathbf{R}} = \widetilde{A}_{\mathbf{R}}^i \text{ \textbf{if needed}}
+  \end{equation*}
+
+  \begin{itemize}
+  \item $\opF^i$'s invariant needs $R$ $\Rightarrow$ $\opF^{j < i}_R$ fully computed
+  \item $\opF^i$'s remainder needs $R$ $\Rightarrow$ $\opF^{j > i}_R$ uncomputed
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{An example: Cholesky + lower-triangular solve}
+  \begin{columns}
+    \begin{column}{0.5\textwidth}
+      Cholesky algorithms.
+      \begin{align*}
+        &\alt<2->{\cancel{\FlaTwoByTwo{L_{TL} = CHOL(\hat{L}_{TL})}{*}
+          {L_{BL} = \hat{L}_{BL}}{L_{BR} = \hat{L}_{BR}}}}
+          {\FlaTwoByTwo{L_{TL} = CHOL(\hat{L}_{TL})}{*}
+          {L_{BL} = \hat{L}_{BL}}{L_{BR} = \hat{L}_{BR}}}\\
+        &\FlaTwoByTwo{L_{TL} = CHOL(\hat{L}_{TL})}{*}
+          {L_{BL} = \hat{L}_{BL}\widetilde{L}_{TL}^{-T}}{L_{BR} = \hat{L}_{BR}}\\
+        &\FlaTwoByTwo{L_{TL} = CHOL(\hat{L}_{TL})}{*}
+          {L_{BL} = \hat{L}_{BL}\widetilde{L}_{TL}^{-T}}{L_{BR} = \hat{L}_{BR} - \widetilde{L}_{BL}\widetilde{L}_{BL}^T}\\
+      \end{align*}
+    \end{column}
+    \begin{column}{0.5\textwidth}
+      Lower triangular solve algorithms
+      \begin{align*}
+        &\FlaTwoByOne{B_T = L_{TL} \setminus \hat{B}_T}{B_B = \hat{B}_B}\\
+        &\alt<2->{\cancel{\FlaTwoByOne{B_T = L_{TL} \setminus \hat{B}_T}{B_B = \hat{B}_B - L_{BL}\widetilde{B}_T}}}
+        {\FlaTwoByOne{B_T = L_{TL} \setminus \hat{B}_T}{B_B = \hat{B}_B - L_{BL}\widetilde{B}_T}}\\
+      \end{align*}
+    \end{column}
+  \end{columns}
+
+  5 fused algorithms. (All combinations fuse except one.)
+\end{frame}
+
+\begin{frame}
+  \frametitle{We can't go further}
+  Consider:
+  \begin{align*}
+    L &\coloneqq CHOL(L) & \FlaTwoByTwo{\widetilde{A}_{TL} \coloneqq_O CHOL(\hat{A}_{TL})}{*}
+                           {\widetilde{A}_{BL} \coloneqq \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}
+                           {\begin{array}{c}
+                              A_{BR, 0} \coloneqq \hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T;\\
+                              \widetilde{A}_{BR} \coloneqq_O CHOL(A_{BR, 0})
+                            \end{array}}\\
+    T &\coloneqq L^{-1}B & \FlaTwoByOne{\widetilde{T}_T \coloneqq_O TRSV(\hat{L}_{TL}, B_T)}
+                             {\begin{array}{c}
+                                T_{B, 0} \coloneqq \hat{T}_B - \hat{L}_{BL}\widetilde{T}_T\\
+                                \widetilde{T}_B \coloneqq_O TRSV(\hat{L}_{BR}, T_{B, 0})
+                              \end{array}}\\
+    X &\coloneqq L^{-T}B & \FlaTwoByOne{
+                           \begin{array}{c}
+                             X_{T, 0} \coloneqq \hat{X}_T - \hat{L}^T_{BL}\widetilde{X}_B\\
+                             \widetilde{X}_T \coloneqq_O TRSV(\hat{L}_{BR}, X_{T, 0})
+                           \end{array}}
+    {X_B \coloneqq TRSV(\hat{L}_{BR}, \hat{T}_B)}\\
+  \end{align*}
+
+  \begin{itemize}
+  \item No fused algorithm (we checked)
+  \item Top to bottom vs. bottom to top
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Strips}
+  \begin{itemize}
+  \item Strip: sequence of region $R$ from each loop
+  \item Potentially fusable strip has:
+    \begin{itemize}
+    \item Some number of fully computed regions, then
+    \item Optionally, one partially computed region, then
+    \item Uncomputed regions
+    \end{itemize}
+  \end{itemize}
+
+  \begin{tikzpicture}
+    \matrix (states) [strip, ampersand replacement=\&] {
+      |[comp]| \& |[comp]| \& |[partial]| \& |[uncomp]| \& |[uncomp]| \\
+    };
+  \end{tikzpicture}
+
+  but not
+
+  \begin{tikzpicture}
+    \matrix (states) [strip, ampersand replacement=\&] {
+      |[comp]| \& |[uncomp]| \& |[partial]| \& |[partial]| \& |[comp]| \\
+    };
+  \end{tikzpicture}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Finding fusable loops}
+  \begin{itemize}
+  \item Search through potentially fusable strips
+    \begin{itemize}
+    \item
+      \begin{tikzpicture}
+        \matrix (states) [strip, row sep=0.1cm, ampersand replacement=\&] {
+          |[comp, label={below:Any}]| \& |[uncomp]| \& |[rectangle=no,draw=white]| $=$ \& |[comp]| \& |[uncomp,label={below:Any}]|\\
+        };
+      \end{tikzpicture}
+    \end{itemize}
+  \item Enforce fusion constraints throughout
+  \item Check all fusable strip-sets to see if each loop has an invariant
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Last computed, first uncomputed}
+  \begin{itemize}
+  \item Track constraints on last computed region $C_R$ (and first uncomptued $U_R$)
+  \item Initially, $-1 \leq C_R, U_R \leq n$ (maybe nothing/everything is computed/uncomputed)
+  \item Past read in loop $i$: $C_R \geq i - 1$
+  \item Future read in loop $i$: $U_R \leq i + 1$
+  \item When strip is made, set $C_R$ and $U_R$, add more constraints
+  \item On failure, backtrack
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Multiple matrices}
+  \begin{itemize}
+  \item Some operations have multiple outputs
+  \item (Ex. $y = Lx; L = L^{-1}$)
+  \item All strips must be same length --- add empty regions
+  \item De-dup check from before works
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Multiple matrices}
+  \begin{itemize}
+  \item Last computed or first uncomputed can be followed by empty
+  \item If so, bound $\{C, U\}_R$ to include the empty regions
+  \item Needed to make constraints work
+  \end{itemize}
+  \begin{tikzpicture}
+    \matrix (strip) [strip, ampersand replacement=\&] {
+      |[comp]| \& |[comp]| \& |[uncomp]| \& |[uncomp]| \& |[uncomp]| \& |[uncomp]|\\
+    };
+    \emptyreg{strip-1-3};
+    \emptyreg{strip-1-4};
+    \bracelabel{strip-1-2.south west}{strip-1-4.south east}{below}{$C_R$};
+    \bracelabel{strip-1-3.north west}{strip-1-5.north east}{above}{$U_R$};
+  \end{tikzpicture}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Comes from task}
+  \begin{itemize}
+  \item For things like $LU = A$, tasks write multiple regions
+  \item To prevent duplicates, use $U_R \leftarrow L_R$ (comes from)
+  \item If $L_R$ computed, $U_R$ is computed, otherwise not
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Another important example}
+  \begin{itemize}
+  \item Graph problem $C = (AM + (AM)^T) - MM$, where $A$ and $M$ are symmetric
+  \item $C \coloneqq (AM + (AM)^T); C \coloneqq C - MM$ has $56$ fused algorithms
+  \item However, $C = A$ or $C = M$ gives $0$ algorithms
+    \begin{itemize}
+    \item Dependencies: $TL \leftrightarrow TR$ and $TR \leftrightarrow BR$
+    \item Overwriting one quadrant requires computing everything
+    \item \textbf{TODO figure}
+    \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\section{Experiments}
+
+\begin{frame}
+  \frametitle{TODO do an experiment}
+\end{frame}
+
+\section*{Conclusions}
+
+\begin{frame}
+  \frametitle{Conclusions}
+  \begin{itemize}
+  \item We can automatically find fusable loop invariants
+  \item This is often helpful
+  \item This analysis needs to be at this level
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Acknowledgments}
+  \begin{itemize}
+  \item Tze Meng for doing all the theory
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Future work}
+  \begin{itemize}
+  \item Probably not --- maybe codegen
+  \end{itemize}
+\end{frame}
 \end{document}

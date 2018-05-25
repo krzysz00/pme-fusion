@@ -217,7 +217,7 @@ Adding empty regions does not add duplicate or incorrect results, since empty re
 
 Empty regions do require us to make the constraints on $C_R$ and $U_R$ more complex, as, in different contexts, it is necessary to consider either the index of the actual last computed/first uncomputed region or the index of any of the empty regions immediately following it.
 Since the empty regions do not have any tasks, allowing $C_R$ and $U_R$ to float into them does not affect the correctness of the search.
-Therefore, instead of imposing an equality constraint on $C_R$ and $U_R$ after the strip $S_R$ is partitioned, we bound the values between the index of the last computed/first uncomputed region in the strip and the index end of the sequence of empty regions (if there are any) following that region.
+Therefore, instead of imposing an equality constraint on $C_R$ and $U_R$ after the strip $S_R$ is partitioned, we bound the values between the index of the last computed/first uncomputed region in the strip and the index o the end of the sequence of empty regions (if there are any) after or before that region, respectively.
 With this change, the algorithm operates correctly for problems where empty regions needed to be inserted.
 
 The second enhancement we need to make to our algorithm concerns operations that logically update multiple regions.
@@ -235,17 +235,27 @@ The operations needed to invert a symmetric matrix $A$ are the Cholesky factoriz
 \item
   \begin{equation*}
   \FlaTwoByTwo{\widetilde{A}_{TL} \coloneqq_O CHOL(\hat{A}_{TL})}{*}
-  {\widetilde{A}_{BL} \coloneqq \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}{A_{BR, 0} \coloneqq \hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T; \widetilde{A}_{BR} \coloneqq_O CHOL(A_{BR, 0})}
+  {\widetilde{A}_{BL} \coloneqq \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}
+  {\begin{array}{c}
+     A_{BR, 0} \coloneqq \hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T;\\
+     \widetilde{A}_{BR} \coloneqq_O CHOL(A_{BR, 0})
+   \end{array}}
   \end{equation*}
 \item
   \begin{equation*}
     \FlaTwoByTwo{\widetilde{A}_{TL} \coloneqq_O \hat{A}_{TL}^{-1}}{*}
-    {A_{BL, (0, a)} \coloneqq (\hat{A}_{BL} \vee A_{BL, (0, b)}) \cdot \widetilde{A}_{TL}; A_{BL, (0, b)} \coloneqq -\hat{A}_{BR}^{-1} \cdot (\hat{A}_{BL} \vee A_{BL, (0, a)})}
-    {\widetilde{A}_{BR} \coloneqq \hat{A}_{BR}^{-1}}
+    {\begin{array}{c}
+       A_{BL, (0, a)} \coloneqq (\hat{A}_{BL} \vee A_{BL, (0, b)}) \cdot \widetilde{A}_{TL};\\
+       A_{BL, (0, b)} \coloneqq -\hat{A}_{BR}^{-1} \cdot (\hat{A}_{BL} \vee A_{BL, (0, a)})
+     \end{array}}
+    {\widetilde{A}_{BR} \coloneqq_O \hat{A}_{BR}^{-1}}
   \end{equation*}
 \item
   \begin{equation*}
-    \FlaTwoByTwo{A_{TL, 0} \coloneqq_O \hat{A}_{TL}\hat{A}_{TL}^T; \widetilde{A}_{TL} \coloneqq A_{TL, 0} + \hat{A}_{BL}^T\hat{A}_{BL}}{*}
+    \FlaTwoByTwo{\begin{array}{c}
+                   A_{TL, 0} \coloneqq_O \hat{A}_{TL}\hat{A}_{TL}^T;\\
+                   \widetilde{A}_{TL} \coloneqq A_{TL, 0} + \hat{A}_{BL}^T\hat{A}_{BL}
+                 \end{array}}{*}
     {\widetilde{A}_{BL} \coloneqq \hat{A}_{BR}\hat{A}_{BL}^T}{\widetilde{A}_{BR} \coloneqq_O \hat{A}_{BR}\hat{A}_{BR}^T}
   \end{equation*}
 \end{enumerate}
