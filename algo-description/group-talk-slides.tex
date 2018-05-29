@@ -298,16 +298,28 @@
 \begin{frame}
   \frametitle{Dependencies, v2}
   \begin{itemize}
-  \item $A_{R, \sigma}$ is before $A_{R', \sigma'}$ if:
+  \item $A_{R, \sigma}$ is before (can compute) $A_{R', \sigma'}$ if:
     \begin{itemize}
     \item $R \neq R'$ (different regions) or
-    \item $\sigma = \bot$ and $\sigma' \neq \bot$
-    \item $\sigma \neq \top$ and $\sigma' = \top$
-    \item $\sigma = m$ (or $(m, x)$) and $\sigma' = n$ (or $(n, y)$), $m < n$
-    \item $\sigma = (n, x)$ and $\sigma' = (n, y)$, and $x \neq y$
+    \item
+      \begin{equation*}
+        \begin{array}{c c c c c c c c c}
+           & &(0, x)&\to&(1, x)&\to&\cdots& &\\
+           & &\updownarrow     & &\updownarrow     &\to&\updownarrow& &\\
+          \bot&\to&0     &\to&1     &\to&\cdots&\to&\top\\
+           & &\updownarrow     & &\updownarrow     &\to&\updownarrow& &\\
+           & &(0, y)&\to&(1, y)&\to&\cdots& &\\
+        \end{array}
+      \end{equation*}
     \end{itemize}
-  \item If anything from am or is before, all of it is
-  \item Invariant/remainder split valid if:
+  \item If anything from an or is before, all of it is
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Dependency validity}
+  \begin{itemize}
+  \item Invariant/remainder split has valid dependencies if:
     \begin{itemize}
     \item All past task inputs before all future task outputs
     \item All past task outputs not after all future task inputs
