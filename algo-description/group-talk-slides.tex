@@ -329,7 +329,7 @@ while (...) {
   \begin{equation*}
     \FlaTwoByOne{\statepicflame{fusecond-1-t}{comp}}{\statepicflame{fusecond-1-b}{partial}}
     ;
-    \FlaTwoByOne{\statepicflame{fusecond-2-t}{comp}}{\statepicflame{fusecond-2-b}{uncomp}}
+    \FlaTwoByOne{\statepicflame{fusecond-2-t}{comp}}{\statepicflame{fusecond-2-b}{uncomp}} \text{ not good}
   \end{equation*}
   \begin{tikzpicture}[remember picture, overlay]
     \path[->] (fusecond-1-b.east) edge [thick, bend left] (fusecond-2-t.west);
@@ -408,7 +408,7 @@ while (...) {
       \begin{align*}
         &\FlaTwoByOne{B_T = L_{TL} \setminus \hat{B}_T}{B_B = \hat{B}_B}\\
         &\text{and}\\
-        &\mathbf{\FlaTwoByOne{B_T = L_{TL} \setminus \hat{B}_T}{B_B = \hat{B}_B - L_{BL}\widetilde{B}_T}}
+        &\cancel{\FlaTwoByOne{B_T = L_{TL} \setminus \hat{B}_T}{B_B = \hat{B}_B - L_{BL}\widetilde{B}_T}}
       \end{align*}
     \end{column}
   \end{columns}
@@ -479,10 +479,9 @@ while (...) {
   \item Add new temporary type, $A_{R, (n, x)}$
   \item Now we can write
     \begin{align*}
-      A_{(0, a)} &\coloneqq (\hat{A} \vee A_{(0, b)}) - B;
+      A_{(0, a)} &\coloneqq (\hat{A} \vee A_{(0, b)}) - B;\\
       A_{(0, b)} &\coloneqq (\hat{A} \vee A_{(0, a)}) - B
     \end{align*}
-  \item With this, computed is all tasks in remainder and so on
   \end{itemize}
 \end{frame}
 
