@@ -98,8 +98,8 @@ while (...) {
 
   \vspace*{2em}
   \begin{itemize}
-  \item Often helpful for performance
-  \item Not always possible
+  \item Helpful for performance
+  \item Often not possible
   \end{itemize}
 \end{frame}
 
@@ -182,9 +182,8 @@ while (...) {
 \begin{frame}
   \frametitle{Loop invariants}
   \begin{itemize}
-  \item Matrix/vector/graph/$\ldots$ is split into regions
   \item Invariant says what the regions contain before \& after each iteration
-  \item In terms of $\hat{A}_R$ (initial value) \& $\widetilde{A}$ (final value)
+  \item In terms of $\hat{A}_R$ (initial value) \& $\widetilde{A}_R$ (final value)
   \item For example:
     \begin{equation*}
       \FlaTwoByTwo{L_{TL} = CHOL(\hat{L}_{TL})}{*}
@@ -223,6 +222,10 @@ while (...) {
     {\widetilde{A}_{BL} = \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}
     {\widetilde{A}_{BR} = CHOL(\hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T)}
   \end{equation*}
+  \begin{equation*}
+   \FlaTwoByOne{\widetilde{B}_T =  L_{TL} \setminus \hat{B}_T}
+   {\widetilde{B}_B = L_{BR} \setminus (\hat{B}_B - L_{BL}\widetilde{B}_T)}
+ \end{equation*}
 \end{frame}
 
 \begin{frame}
@@ -231,6 +234,11 @@ while (...) {
   \item Cross out parts to get loop invariants
   \item Crossed-out parts go to \emph{remainer}
   \end{itemize}
+  \only<4->{\begin{equation*}
+    \FlaTwoByTwo{\widetilde{A}_{TL} = CHOL(\hat{A}_{TL})}{*}
+    {\widetilde{A}_{BL} = \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}
+    {\widetilde{A}_{BR} = CHOL(\hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T)}
+  \end{equation*}}
   \only<1>{\begin{equation*}
     \FlaTwoByTwo{A_{TL} = CHOL(\hat{A}_{TL})}{*}
     {A_{BL} = \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}
@@ -239,13 +247,26 @@ while (...) {
   \only<2>{\begin{equation*}
     \FlaTwoByTwo{A_{TL} = CHOL(\hat{A}_{TL})}{*}
     {A_{BL} = \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}
-    {A_{BR} = \cancel{CHOL(\hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T)}}
+    {A_{BR} = \cancel{CHOL(\hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T)} = \hat{A}_{BR}}
   \end{equation*}}
   \only<3>{\begin{equation*}
     \FlaTwoByTwo{A_{TL} = CHOL(\hat{A}_{TL})}{*}
-    {A_{BL} = \cancel{\hat{A}_{BL}\widetilde{A}_{TL}^{-T}}}
-    {A_{BR} = \cancel{CHOL(\hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T)}}
+    {A_{BL} = \cancel{\hat{A}_{BL}\widetilde{A}_{TL}^{-T}} = \hat{A}_{BL}}
+    {A_{BR} = \cancel{CHOL(\hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T)} = \hat{A}_{BR}}
   \end{equation*}}
+
+  \only<-3>{\begin{equation*}
+   \FlaTwoByOne{\widetilde{B}_T =  L_{TL} \setminus \hat{B}_T}
+   {\widetilde{B}_B = L_{BR} \setminus (\hat{B}_B - L_{BL}\widetilde{B}_T)}
+ \end{equation*}}
+  \only<4>{\begin{equation*}
+   \FlaTwoByOne{\widetilde{B}_T =  L_{TL} \setminus \hat{B}_T}
+   {\widetilde{B}_B = \cancel{L_{BR} \setminus} (\hat{B}_B - L_{BL}\widetilde{B}_T)}
+ \end{equation*}}
+  \only<5>{\begin{equation*}
+   \FlaTwoByOne{\widetilde{B}_T =  L_{TL} \setminus \hat{B}_T}
+   {\widetilde{B}_B = \cancel{L_{BR} \setminus (\hat{B}_B - L_{BL}\widetilde{B}_T)} = \hat{B}_B}
+ \end{equation*}}
 \end{frame}
 
 \begin{frame}
@@ -276,7 +297,7 @@ while (...) {
   \end{equation*}
 
   \begin{equation*}
-    \FlaTwoByTwo{\cancel{A_{TL} = CHOL(\hat{A}_{TL})}}{*}
+    \FlaTwoByTwo{A_{TL} = \cancel{CHOL(\hat{A}_{TL})}}{*}
     {A_{BL} = \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}
     {A_{BR} = \cancel{CHOL(\hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T)}}
     \quad
@@ -305,7 +326,7 @@ while (...) {
   \frametitle{Conditions for fusion}
   \begin{itemize}
   \item Invariant reads $A_R^i$ $\Rightarrow$ $A_R^{i - 1}$ fully computed
-  \item Remainder writes $A_R^{i}$ $\Rightarrow$ all regions afterwards uncomputed
+  \item Remainder reads $A_R^{i}$ $\Rightarrow$ all later $A_R^j$ uncomputed
   \end{itemize}
 
   \begin{center}
@@ -475,12 +496,12 @@ while (...) {
     \item $A_0 \coloneqq \hat{A} - C; \widetilde{A} \coloneqq A_0 - B$
     \end{itemize}
 
-  \item Sometimes we want to consider both cases (like in Sylvester equations)
+  \item Having all four creates duplication - complicates analysis
   \item Add new temporary type, $A_{R, (n, x)}$
   \item Now we can write
     \begin{align*}
-      A_{(0, a)} &\coloneqq (\hat{A} \vee A_{(0, b)}) - B;\\
-      A_{(0, b)} &\coloneqq (\hat{A} \vee A_{(0, a)}) - B
+      \{A_{(0, a)} &\coloneqq (\hat{A} \vee A_{(0, b)}) - B;\\
+      A_{(0, b)} &\coloneqq (\hat{A} \vee A_{(0, a)}) - C\}
     \end{align*}
   \end{itemize}
 \end{frame}
