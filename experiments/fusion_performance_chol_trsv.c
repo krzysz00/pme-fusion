@@ -139,14 +139,14 @@ FLA_Error fused_alg(FLA_Obj A, FLA_Obj B) {
         // a21 = a21 / alpha11
         FLA_Inv_scal_external(alpha11, a21);
 
-        // A22 = A22 - a21 * a21'
-        FLA_Her_external(FLA_LOWER_TRIANGULAR, FLA_MINUS_ONE, a21, A22);
-
         /* b1t = b1t / alpha11 */
         FLA_Inv_scal_external( alpha11, b1t );
 
         /* B2 = B2 - a21 * b1t */
         FLA_Ger_external(FLA_MINUS_ONE, a21, b1t, B2 );
+
+        // A22 = A22 - a21 * a21'
+        FLA_Her_external(FLA_LOWER_TRIANGULAR, FLA_MINUS_ONE, a21, A22);
 
         /*------------------------------------------------------------*/
 
