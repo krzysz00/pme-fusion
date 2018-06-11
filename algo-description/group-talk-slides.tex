@@ -57,7 +57,7 @@
 \title[Loop fusion]{Automated High-Level Loop Fusion for FLAME Algorithms}
 \author[Drewniak]{Krzysztof A. Drewniak}
 \institute[CMU]{Carnegie Mellon University}
-\date[]{June TODO, 2018}
+\date[]{June 13, 2018}
 
 \begin{document}
 \begin{frame}[plain]
@@ -232,7 +232,7 @@ while (...) {
   \frametitle{Forming loop invariants}
   \begin{itemize}
   \item Cross out parts to get loop invariants
-  \item Crossed-out parts go to \emph{remainer}
+  \item Crossed-out parts go to \emph{remainder}
   \end{itemize}
   \only<4->{\begin{equation*}
     \FlaTwoByTwo{\widetilde{A}_{TL} = CHOL(\hat{A}_{TL})}{*}
@@ -385,8 +385,6 @@ while (...) {
 
 \begin{frame}
   \frametitle{Cholesky + solve: easy cases}
-  \textbf{TODO, should these be invariants or state pictures or both?}
-
   \begin{columns}
     \begin{column}[t]{0.45\textwidth}
       Cholesky invariants.
@@ -509,7 +507,7 @@ while (...) {
 \begin{frame}
   \frametitle{Dependencies, v2}
   \begin{itemize}
-  \item Name $\hat{A}_R$ as $\hat{A}_{R, \bot}$ and $\widetilde{A}$ as $A_{R, \top}$
+  \item Name $\hat{A}_R$ as $A_{R, \bot}$ and $\widetilde{A}$ as $A_{R, \top}$
   \item $A_{R, \sigma}$ is before (can compute) $A_{R', \sigma'}$ if:
     \begin{itemize}
     \item $R \neq R'$ (different regions) or
@@ -533,9 +531,9 @@ while (...) {
   \begin{itemize}
   \item For each invariant/remainder split:
     \begin{itemize}
-    \item Ensure operation task ($\coloneqq_O$) in invariant and remainder
+    \item Operation task ($\coloneqq_O$) in invariant and remainder (in different regions)
     \item All inputs to invariant tasks must be before all remainder task outputs (no using data you don't have)
-    \item All invariant task outputs must be before all remainder task inputs (no overwriting data you'll need)
+    \item All invariant task outputs must not be after all remainder task inputs (no overwriting data you'll need)
     \end{itemize}
   \end{itemize}
 \end{frame}
@@ -601,11 +599,11 @@ while (...) {
   \frametitle{Demo time}
 \end{frame}
 
-\section{Experiments}
+% \section{Experiments}
 
-\begin{frame}
-  \frametitle{TODO do an experiment?}
-\end{frame}
+% \begin{frame}
+%   \frametitle{TODO do an experiment?}
+% \end{frame}
 
 \section{Conclusions}
 
