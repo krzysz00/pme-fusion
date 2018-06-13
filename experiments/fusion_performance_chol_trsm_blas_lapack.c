@@ -1,7 +1,7 @@
 #include <flame/FLAME.h>
 #include <math.h>
 
-#define BLOCKSIZE 128
+#define BLOCKSIZE 64
 
 double ONE = 1.0;
 double MINUS_ONE = -1.0;
