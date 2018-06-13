@@ -1,10 +1,13 @@
 CFLAGS = -O2
-LIBS = -lflame -lm -lblis
+LIBS = -lflame -lm -lblis -llapack
 
-all: fusion_performance_chol_trsm
+all: fusion_performance_chol_trsm_blas_lapack fusion_performance_chol_trsm
 
 fusion_performance_chol_trsm: fusion_performance_chol_trsm.o
-	gcc $(CFLAGS) $^ -o $@ $(LIBS) $(LDFLAGS)
+	gcc $(CFLAGS) $^ -o $@ $(LDFLAGS) $(LIBS)
+
+fusion_performance_chol_trsm_blas_lapack: fusion_performance_chol_trsm_blas_lapack.o
+	gcc $(CFLAGS) $^ -o $Oo $(LDFLAGS) $(LIBS)
 
 %.o: %.c
 	gcc $(CFLAGS) -o $@ -c $<
