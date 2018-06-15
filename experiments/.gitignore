@@ -1,3 +1,5 @@
 fusion_performance_chol_trsm
 *.o
 fusion_performance_chol_trsm_blas_lapack
+.dir-locals.el
+symmetric_inverse
