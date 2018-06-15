@@ -1,1 +1,2 @@
 Info: performance gain not as large as expected on the CHOL + TRSM fusion because of cache issues
+Fusion isn't too helpful at large (definetly > 64 or 128) matrix sizes, but is good for small matrices. Probably doesn't get good again until distributed memory

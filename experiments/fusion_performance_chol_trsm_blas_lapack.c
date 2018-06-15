@@ -1,17 +1,19 @@
-#include <flame/FLAME.h>
+#define _GNU_SOURCE 1
+#include <mkl.h>
+#include <stdio.h>
 #include <math.h>
+#include <stdlib.h>
+#include <time.h>
 
-#define BLOCKSIZE 64
+#include "util.h"
 
-double ONE = 1.0;
-double MINUS_ONE = -1.0;
+#define BLOCKSIZE 128
 
 void unfused_alg(int n, double* a, int lda, double* b, int ldb) {
     for (int i = 0; i < n; i += BLOCKSIZE) {
         int blk = min(BLOCKSIZE, n - i);
-        int chol_info = 0;
-        dpotrf_("Lower triangular", &blk, (a + (lda * i + i)), &lda,
-                &chol_info);
+        int chol_info = LAPACKE_dpotrf(LAPACK_COL_MAJOR, 'L',
+                                       blk, a + (lda * i) + i, lda);
         if (chol_info) {
             printf("Unfused: Error at %d + %d in cholesky\n", i, chol_info);
             return;
@@ -20,29 +22,30 @@ void unfused_alg(int n, double* a, int lda, double* b, int ldb) {
         if (i + BLOCKSIZE < n) {
             // A21 = A21 * inv( tril( A11 )' )
             int trsm_m = n - (i + BLOCKSIZE);
-            dtrsm_("Right", "Lower", "Trans", "Nonunit", &trsm_m , &blk, &ONE,
-                   (a + (lda * i + i)), &lda,
-                   (a + (lda * i + i + BLOCKSIZE)), &lda);
+            cblas_dtrsm(CblasColMajor, CblasRight, CblasLower, CblasTrans, CblasNonUnit,
+                        trsm_m , blk, 1.0, (a + (lda * i + i)), lda,
+                        (a + (lda * i + i + BLOCKSIZE)), lda);
 
             // A22 = A22 - A21 * A21'
-            dsyrk_("Lower triangular", "No transpose", &trsm_m, &blk, &MINUS_ONE,
-                   (a + (lda * i + i + BLOCKSIZE)), &lda, &ONE,
-                   (a + (lda * (i + BLOCKSIZE) + (i + BLOCKSIZE))), &lda);
+            cblas_dsyrk(CblasColMajor, CblasLower, CblasNoTrans,
+                        trsm_m, blk, -1.0,
+                        (a + (lda * i + i + BLOCKSIZE)), lda,
+                        1.0, (a + (lda * (i + BLOCKSIZE) + (i + BLOCKSIZE))), lda);
         }
     }
 
     /** Solve **/
     for (int i = 0; i < n; i += BLOCKSIZE) {
         int blk = min(BLOCKSIZE, n - i);
-        dtrsm_("Left", "Lower", "No transpose", "Nonunit",
-               &blk, &n, &ONE, (a + (lda * i) + i), &lda,
-               b + i, &ldb);
+        cblas_dtrsm(CblasColMajor, CblasLeft, CblasLower, CblasNoTrans, CblasNonUnit,
+                    blk, n, 1.0, (a + (lda * i) + i), lda,
+                    b + i, ldb);
         if (i + BLOCKSIZE < n) {
             /* B2 = B2 - A21 * B1 */
             int gemm_m = n - (i + BLOCKSIZE);
-            dgemm_("No transpose", "No transpose", &gemm_m, &n, &blk,
-                   &MINUS_ONE, a + ((lda * i) + (i + BLOCKSIZE)), &lda,
-                   b + i, &ldb, &ONE, b + i + BLOCKSIZE, &ldb);
+            cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, gemm_m, n, blk,
+                   -1.0, a + ((lda * i) + (i + BLOCKSIZE)), lda,
+                   b + i, ldb, 1.0, b + i + BLOCKSIZE, ldb);
         }
     }
 }
@@ -50,94 +53,84 @@ void unfused_alg(int n, double* a, int lda, double* b, int ldb) {
 void fused_alg(int n, double* a, int lda, double* b, int ldb) {
     for (int i = 0; i < n; i += BLOCKSIZE) {
         int blk = min(BLOCKSIZE, n - i);
-        int chol_info = 0;
-        dpotrf_("Lower triangular", &blk, (a + (lda * i + i)), &lda,
-                &chol_info);
+        int chol_info = LAPACKE_dpotrf(LAPACK_COL_MAJOR, 'L',
+                                       blk, a + (lda * i) + i, lda);
         if (chol_info) {
-            printf("Fused: Error at %d + %d in cholesky\n", i, chol_info);
+            printf("Unfused: Error at %d + %d in cholesky\n", i, chol_info);
             return;
         }
 
-
-        dtrsm_("Left", "Lower", "No transpose", "Nonunit",
-               &blk, &n, &ONE, (a + (lda * i) + i), &lda,
-               b + i, &ldb);
+        cblas_dtrsm(CblasColMajor, CblasLeft, CblasLower, CblasNoTrans, CblasNonUnit,
+                    blk, n, 1.0, (a + (lda * i) + i), lda,
+                    b + i, ldb);
 
         if (i + BLOCKSIZE < n) {
             // A21 = A21 * inv( tril( A11 )' )
-            int trsm_m = n - (i + BLOCKSIZE);
-            dtrsm_("Right", "Lower", "Trans", "Nonunit", &trsm_m , &blk, &ONE,
-                   (a + (lda * i + i)), &lda,
-                   (a + (lda * i + i + BLOCKSIZE)), &lda);
+            int lower_m = n - (i + BLOCKSIZE);
+            cblas_dtrsm(CblasColMajor, CblasRight, CblasLower, CblasTrans, CblasNonUnit,
+                        lower_m , blk, 1.0, (a + (lda * i + i)), lda,
+                        (a + (lda * i + i + BLOCKSIZE)), lda);
 
             /* B2 = B2 - A21 * B1 */
-            int gemm_m = n - (i + BLOCKSIZE);
-            dgemm_("No transpose", "No transpose", &gemm_m, &n, &blk,
-                   &MINUS_ONE, a + ((lda * i) + (i + BLOCKSIZE)), &lda,
-                   b + i, &ldb, &ONE, b + i + BLOCKSIZE, &ldb);
+            cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, lower_m, n, blk,
+                   -1.0, a + ((lda * i) + (i + BLOCKSIZE)), lda,
+                   b + i, ldb, 1.0, b + i + BLOCKSIZE, ldb);
 
             // A22 = A22 - A21 * A21'
-            dsyrk_("Lower triangular", "No transpose",
-                   &trsm_m, &blk, &MINUS_ONE,
-                   (a + (lda * i + i + BLOCKSIZE)), &lda, &ONE,
-                   (a + (lda * (i + BLOCKSIZE) + (i + BLOCKSIZE))), &lda);
+            cblas_dsyrk(CblasColMajor, CblasLower, CblasNoTrans,
+                        lower_m, blk, -1.0,
+                        (a + (lda * i + i + BLOCKSIZE)), lda,
+                        1.0, (a + (lda * (i + BLOCKSIZE) + (i + BLOCKSIZE))), lda);
         }
     }
 }
 
-void benchmark(dim_t n) {
+void benchmark(int n) {
     double unfused_secs = 1e50;
     double fused_secs = 1e50;
     double a_diff = -1;
     double b_diff = -1;
 
     for (int i = 0; i < 5; i++) {
-        FLA_Obj A1, A2, B1, B2;
+        double *a1 = rand_symmetric_matrix(n);
+        double *a2 = copy_matrix(n, n, a1);
 
-        FLA_Obj_create(FLA_DOUBLE, n, n, 1, n, &A1);
-        FLA_Obj_create(FLA_DOUBLE, n, n, 1, n, &B1);
+        double *b1 = rand_matrix(n, n);
+        double *b2 = copy_matrix(n, n, b1);
 
-        FLA_Random_symm_matrix(FLA_LOWER_TRIANGULAR, A1);
-        FLA_Random_matrix(B1);
-
-        FLA_Obj_create_copy_of(FLA_NO_TRANSPOSE, A1, &A2);
-        FLA_Obj_create_copy_of(FLA_NO_TRANSPOSE, B1, &B2);
-
-        double *a1 = (double*)FLA_Obj_base_buffer(A1);
-        double *a2 = (double*)FLA_Obj_base_buffer(A2);
-        double *b1 = (double*)FLA_Obj_base_buffer(B1);
-        double *b2 = (double*)FLA_Obj_base_buffer(B2);
-
-        double unfused_start = FLA_Clock();
-        unfused_alg(n, a1, n, b1, n);
-        double unfused_end = FLA_Clock();
+        double unfused_start = get_cpu_time();
+        //unfused_alg(n, a1, n, b1, n);
+        LAPACKE_dpotrf(LAPACK_COL_MAJOR, 'L', n, a1, n);
+        cblas_dtrsm(CblasColMajor, CblasLeft, CblasLower, CblasNoTrans, CblasNonUnit,
+                    n, n, 1, a1, n, b1, n);
+        double unfused_end = get_cpu_time();
         unfused_secs = min(unfused_secs, unfused_end - unfused_start);
 
-        double fused_start = FLA_Clock();
+        double fused_start = get_cpu_time();
         fused_alg(n, a2, n, b2, n);
-        double fused_end = FLA_Clock();
+        double fused_end = get_cpu_time();
         fused_secs = min(fused_secs, fused_end - fused_start);
 
-        double my_a_diff = FLA_Max_elemwise_diff(A1, A2);
-        double my_b_diff = FLA_Max_elemwise_diff(B1, B2);
+        double my_a_diff = max_elem_diff(n, n, a1, n, a2, n);
+        double my_b_diff = max_elem_diff(n, n, b1, n, b2, n);
         a_diff = max(my_a_diff, a_diff);
         b_diff = max(my_b_diff, b_diff);
 
-        FLA_Obj_free(&A1);
-        FLA_Obj_free(&A2);
-        FLA_Obj_free(&B1);
-        FLA_Obj_free(&B2);
+        free(a1);
+        free(a2);
+        free(b1);
+        free(b2);
     }
 
-    printf("%lu\t%e\t%e\t%e\t%e\n", n, unfused_secs, fused_secs, a_diff, b_diff);
+    printf("%d\t%e\t%e\t%e\t%e\n", n, unfused_secs, fused_secs, a_diff, b_diff);
 }
 
 int main() {
-    FLA_Init();
     srand(time(NULL));
+    srand48(time(NULL) + 5000);
 
     printf("N\tUnfused\tFused\tErr_A\tErr_B\n");
-    for (dim_t i = 1; i < 128; i++) {
+    for (int i = 1; i < 128; i++) {
         benchmark(i * 8);
     }
     return 0;

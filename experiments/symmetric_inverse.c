@@ -3,19 +3,12 @@
 //#include <flame/FLAME.h>
 #include <stdio.h>
 #include <math.h>
-#include <time.h>
-#include <string.h>
 #include <stdlib.h>
+#include <time.h>
 
-#define BLOCKSIZE 64
+#include "util.h"
 
-#define min(x, y) (((x) < (y)) ? (x) : (y))
-#define max(x, y) (((x) > (y)) ? (x) : (y))
-
-double ONE = 1.0;
-double MINUS_ONE = -1.0;
-double ZERO = 0.0;
-int ONE_I = 1;
+#define BLOCKSIZE 128
 
 // These functions compute L = L^T \* L for a lower-triangular and square matrix L
 void trtrmm_unblocked(int n, double* a, int lda) {
@@ -185,45 +178,6 @@ void fused_alg(int n, double* a, int lda) {
     }
 }
 
-double* alloc_mat(int m, int n) {
-    void *m_raw;
-    int _eh_itll_segfault = posix_memalign(&m_raw, 64, m * n * sizeof(double));
-    bzero(m_raw, m * n * sizeof(double));
-    return (double*)m_raw;
-}
-
-double* rand_symmetric_matrix(int n) {
-    double *m = alloc_mat(n, n);
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j <= i; j++) {
-            m[j * n + i] = drand48();
-        }
-    }
-    // SPD-ize through L^T * L
-    trtrmm_unblocked(n, m, n);
-    for (int i = 0; i < n; i++) {
-        m[i * n + i] += n;
-    }
-    return m;
-}
-
-double get_cpu_time() {
-    struct timespec t;
-    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &t);
-    return (double)t.tv_sec + ((double)t.tv_nsec / 1.0e9);
-}
-
-double max_elem_diff(int m, int n, double *a, int lda, double *b, int ldb) {
-    double ret = 0.0;
-    for (int j = 0; j < n; j++) {
-        for (int i = 0; i < n; i++) {
-            double diff = fabs(a[j * lda + i] - b[j * ldb + i]);
-            ret = max(ret, diff);
-        }
-    }
-    return ret;
-}
-
 void benchmark(int n) {
     double unfused_secs = 1e50;
     double fused_secs = 1e50;
@@ -232,8 +186,7 @@ void benchmark(int n) {
     for (int i = 0; i < 5; i++) {
 
         double *a1 = rand_symmetric_matrix(n);
-        double *a2 = alloc_mat(n, n);
-        memcpy(a2, a1, n * n * sizeof(double));
+        double *a2 = copy_matrix(n, n, a1);
 
         double unfused_start = get_cpu_time();
         int inv_error = LAPACKE_dpotri(LAPACK_COL_MAJOR, 'L', (int)n, a1, (int)n);
