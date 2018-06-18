@@ -286,8 +286,10 @@ find_regions_as_constants(Regions, Parent, Term) :-
     (atom(Term), ord_memberchk(Term, Regions),
      format("WARNING: The region ~w appears without a state specifier in ~w~n", [Term, Parent]), !);
     (is_list(Term), maplist(find_regions_as_constants(Regions, Term), Term), !);
-    (compound(Term), compound_name_arguments(Term, _, Args),
-     maplist(find_regions_as_constants(Regions, Term), Args), !);
+    (compound(Term), compound_name_arguments(Term, Name, Args),
+     (((Name == any, length(Args, ArgLen), ArgLen =\= 1) ->
+           format("WARNING: Failure to put any argument in a list in ~w~n", [Term]); true),
+      maplist(find_regions_as_constants(Regions, Term), Args), !));
     true.
 find_regions_as_constants(Regions, Term) :-
     find_regions_as_constants(Regions, Term, Term).
