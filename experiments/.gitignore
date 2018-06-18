@@ -3,3 +3,4 @@ fusion_performance_chol_trsm
 fusion_performance_chol_trsm_blas_lapack
 .dir-locals.el
 symmetric_inverse
+chol_trsm_small_mats

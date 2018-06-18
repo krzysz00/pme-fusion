@@ -25,8 +25,9 @@ void _trtrmm_unblocked(int n, double* a, int lda) {
     }
 }
 double* alloc_mat(int m, int n) {
-    void *m_raw;
-    int _eh_itll_segfault = posix_memalign(&m_raw, 64, m * n * sizeof(double));
+    void *m_raw = NULL;
+    int eh_itll_segfault = posix_memalign(&m_raw, 64, m * n * sizeof(double));
+    (void)eh_itll_segfault;
     bzero(m_raw, m * n * sizeof(double));
     return (double*)m_raw;
 }
