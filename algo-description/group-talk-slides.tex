@@ -7,6 +7,7 @@
 \newcommand*{\mycite}[1]{~\cite{#1}}
 
 \usepackage{hyperref}
+\usepackage{graphicx}
 
 \usepackage{biblatex}
 \addbibresource{cites.bib}
@@ -599,11 +600,17 @@ while (...) {
   \frametitle{Demo time}
 \end{frame}
 
-% \section{Experiments}
+\section{Experiments}
 
-% \begin{frame}
-%   \frametitle{TODO do an experiment?}
-% \end{frame}
+\begin{frame}
+  \frametitle{Performance: Cholesky + Solve, scalar code}
+   \includegraphics[height=0.95\textheight, trim={2cm 0 2cm 0}, clip]{../experiments/benchmarks_chol_trsm_small_mats_more_points_1divsq}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Performance: Cholesky + Solve, scalar code, \% change}
+   \includegraphics[height=0.95\textheight, trim={2cm 0 2cm 0}, clip]{../experiments/benchmarks_chol_trsm_small_mats_more_points_1_perc_change}
+\end{frame}
 
 \section{Conclusions}
 
@@ -627,6 +634,7 @@ while (...) {
   \frametitle{Future work}
   \begin{itemize}
   \item Probably not --- maybe codegen
+  \item Fix direction enforcement for nominally independent loops
   \end{itemize}
 \end{frame}
 \end{document}
