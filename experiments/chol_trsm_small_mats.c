@@ -7,10 +7,6 @@
 
 #include "util.h"
 
-#define BENCH_RPT_OUTER 35
-#define BENCH_RPT_INNER 2500
-#define EPSILON 1e-9
-
 void unfused_alg(int n, double *a, int lda, double *b, int ldb) {
     // Cholesky
     for (int i = 0; i < n; i++) {
@@ -100,16 +96,16 @@ void cache_flush() {
 }
 
 void benchmark(int n) {
-    double unfused_times[BENCH_RPT_OUTER];
-    double fused_times[BENCH_RPT_OUTER];
+    double unfused_times[SMALL_BENCH_RPT_OUTER];
+    double fused_times[SMALL_BENCH_RPT_OUTER];
 
-    for (int i = 0; i < BENCH_RPT_OUTER; i++) {
+    for (int i = 0; i < SMALL_BENCH_RPT_OUTER; i++) {
         double *a = rand_symmetric_matrix(n);
         double *b = rand_matrix(n, n);
 
         double unfused_time = 0;
         double fused_time = 0;
-        for (int j = 0; j < BENCH_RPT_INNER; j++) {
+        for (int j = 0; j < SMALL_BENCH_RPT_INNER; j++) {
             double *a1 = copy_matrix(n, n, a);
             double *b1 = copy_matrix(n, n, b);
             double *a2 = copy_matrix(n, n, a);
@@ -144,16 +140,16 @@ void benchmark(int n) {
             free(b2);
         }
 
-        unfused_times[i] = unfused_time / BENCH_RPT_INNER;
-        fused_times[i] = fused_time / BENCH_RPT_INNER;
+        unfused_times[i] = unfused_time / SMALL_BENCH_RPT_INNER;
+        fused_times[i] = fused_time / SMALL_BENCH_RPT_INNER;
     }
 
     printf("%d\tUnfused", n);
-    for (int i = 0; i < BENCH_RPT_OUTER; i++) {
+    for (int i = 0; i < SMALL_BENCH_RPT_OUTER; i++) {
         printf("\t%e", unfused_times[i]);
     }
     printf("\n%d\tFused", n);
-    for (int i = 0; i < BENCH_RPT_OUTER; i++) {
+    for (int i = 0; i < SMALL_BENCH_RPT_OUTER; i++) {
         printf("\t%e", fused_times[i]);
     }
     printf("\n");
@@ -163,7 +159,7 @@ int main() {
     srand(time(NULL));
     srand48(time(NULL) + 5000);
 
-    for (int i = 4; i <= 64; i += 4) {
+    for (int i = 4; i <= SMALL_BENCH_UPPER_BOUND; i += 4) {
         benchmark(i);
     }
     return 0;
