@@ -11,9 +11,9 @@
  ],
  % Solve
  [
-     op_eq(tilde(b_t), trsm(tilde(l_tl), hat(b_t))),
+     op_eq(tilde(b_t), trsm(hat(l_tl), hat(b_t))),
 
-     eq(during(b_b, 0), sub(hat(b_b), mul(tilde(l_bl), tilde(b_t)))),
-     op_eq(tilde(b_b), trsm(tilde(l_br), during(b_b, 0)))
+     eq(during(b_b, 0), sub(hat(b_b), mul(hat(l_bl), tilde(b_t)))),
+     op_eq(tilde(b_b), trsm(hat(l_br), during(b_b, 0)))
  ]
 ].

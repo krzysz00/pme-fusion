@@ -1,0 +1,124 @@
+\documentclass[12pt,letterpaper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{mathtools,amsthm}
+\DeclarePairedDelimiter\ceil{\lceil}{\rceil}
+\DeclarePairedDelimiter\floor{\lfloor}{\rfloor}
+
+\newcommand*{\mycite}[1]{~\cite{#1}}
+
+\usepackage{hyperref}
+
+\usepackage{verbatim}
+
+\usepackage{setspace}
+\singlespacing{}
+%\doublespacing{}
+
+\usepackage{ifthen}
+\input{flatex}
+
+\newcommand*{\opF}{\mathcal{F}}
+\newcommand*{\opf}{f}
+
+\title{Usage example for pme-fusion}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle{}
+
+To illustrate how to operate the \texttt{pme\_fusion} library and \texttt{gen\_invariants.pl} script, we will demonstrate how to input a simple example, namely a Cholesky factorizaiton fused with a lower-triangular solve.
+The operations involved are finding a $\widetilde{L} = CHOL(\hat{L})$ such that $\widetilde{L}\widetilde{L}^T = \hat{L}$ and finding $\widetilde{B}$ such that $\hat{L}\widetilde{B} = \hat{B}$, for input matrices $\hat{L}$ and $\hat{B}$, which are overwritten by $\widetilde{L}$ and $\widetilde{B}$.
+The triangular solve is notated with $\hat{L}$ since, if we were not fusing these operations, the $L$ that is in input to the solve would be the $\widetilde{L}$ from the Cholesky factorization.
+
+Once you have selected a partitioning for each operand (this choice is often dictated by the structure of your problem and data --- for example, $L$ should be partitioned into a $2 \times 2$ grid to exploit its symmetric structure), you can begin to form the input to the program.
+This process begins by taking your problem specifications and substituting in the partitioned variables.
+For example, once we've chosen to partition $L$ in a $2 \times 2$ form and $B$ into a $2 \times 1$ grid, we have the equations.
+\begin{equation*}
+  \FlaTwoByTwo{\widetilde{L}_{TL}}{0}{\widetilde{L}_{BL}}{\widetilde{L}_{BR}}
+  \FlaTwoByTwo{\widetilde{L}^T_{TL}}{\widetilde{L}^T_{BL}}{0}{\widetilde{L}^T_{BR}}
+  = \FlaTwoByTwo{\hat{L}_{TL}}{*}{\hat{L}_{BL}}{\hat{L}_{BR}}
+\end{equation*}
+and
+\begin{equation*}
+  \FlaTwoByTwo{\hat{L}_{TL}}{0}{\hat{L}_{BL}}{\hat{L}_{BR}}
+  \FlaTwoByOne{\widetilde{B}_T}{\widetilde{B}_B} = \FlaTwoByOne{\hat{B}_T}{\hat{B}_B}.
+\end{equation*}
+
+In order to be able to search for loop invariants, we need to translate these equations into an single expression where each region contains an equation of the from $\widetilde{M}_{R} = \ldots$.
+In these examples, we can begin by carrying out a multiplication
+\begin{equation*}
+  \FlaTwoByTwo{\widetilde{L}_{TL}\widetilde{L}_{TL}^T}{*}
+  {\widetilde{L}_{BL}\widetilde{L}_{TL}^T}{\widetilde{L}_{BL}\widetilde{L}_{BL}^T + \widetilde{L}_{BR}\widetilde{L}_{BR}^T}
+  = = \FlaTwoByTwo{\hat{L}_{TL}}{*}{\hat{L}_{BL}}{\hat{L}_{BR}}
+\end{equation*}
+and multiplying by an inverse
+\begin{equation*}
+  \FlaTwoByOne{\widetilde{B}_{T}}{\widetilde{B}_B}
+  = \FlaTwoByOne{\hat{L}_{TL}^{-1}\hat{B}_T}{-\hat{L}_{BR}^{-1}\hat{L}_{BL}\hat{L}_{TL}^{-1}\hat{B}_T + \hat{L}_{BR}\hat{B}_B}
+\end{equation*}
+
+Within the equations for the Cholesky factorization, we can identify (with some raarrangement required on the bottom right) regions of the form $\widetilde{L}_R\widetilde{L}_R^T = X$, which we will instead write as $\widetilde{L}_R = CHOL(X)$ so that we can express things in the requisite format.
+In addition, we must isolate $\widetilde{L}_{BL}$ with a solve.
+This leaves us with the expression
+\begin{equation*}
+  \FlaTwoByTwo{\widetilde{L}_{TL}}{*}
+  {\widetilde{L}_{BL}}{\widetilde{L}_{BR}}
+  = \FlaTwoByTwo{CHOL(\hat{L}_{TL})}{*}{\hat{L}_{BL}\widetilde{L}_{TL}^{-T}}{CHOL(\hat{L}_{BL} - \widetilde{L}_{BL}\widetilde{L}_{BL}^T)}
+\end{equation*}
+which has the form we want once we move the equalities into each region.
+
+For the lower-triangular solve, we can observe that expression for $\widetilde{B}_T$ appears in the expression for $\widetilde{B}_B$.
+Then, we can factor out the $\hat{L}_{BR}$ and rewrite all the $\widetilde{B}_R = L_S^{-1}Y$ expressions to $\widetilde{B}_R = TRSM(\hat{L}_S, Y)$ to obtain
+\begin{equation*}
+  \FlaTwoByOne{\widetilde{B}_T = TRSM(\hat{L}_{TL}, \hat{B}_T)}{\widetilde{B}_B = TRSM(\hat{L}_{BR}, \hat{B}_B - \hat{L}_{BL}\widetilde{B}_T)}.
+\end{equation*}
+
+We now need to convert these expressions into a form that the \texttt{pme\_fusion} software can operate on.
+One transformation that you need to make is to break expressions that can be partially computed (those where there is a subexpression which could overwrite the input while allowing the computation to proceed) into \emph{tasks}.
+For example, we can convert $\widetilde{L}_{BR} = CHOL(\hat{L}_{BR} - \widetilde{L}_{BL}\widetilde{L}_{BL}^T)$ into the two tasks $L_{BR, 0} \coloneqq \hat{L}_{BR} - \widetilde{L}_{BL}\widetilde{L}_{BL}^T$ and $\widetilde{L}_{BR} \coloneqq_O CHOL(L_{BR, 0})$.
+The second task is written $\coloneqq_O$ because it is a task that performs the underlying operation of the algroithm, in this case, a Cholesky factorizaiton.
+These tasks need to be marked so the algorithm can operate correctly.
+
+There will be cases where you can split an expression into tasks in multiple different ways.
+For example, the expression $\widetilde{L}_{BL} = -\hat{L}_{BR}^{-1}\hat{L}_{BL}\widetilde{L}_{BL}$ from equations for a lower-triangular inverse could be written either as $A_{BL, 0} \coloneqq -\hat{L}_{BR}^{-1}\hat{L}_{BL}$ and $\widetilde{L}_{BL} \coloneqq A_{BL, 0}\widetilde{L}_{TL}$ or as $A_{BL, 0} \coloneqq -\hat{L}_{BL}\widetilde{L}_{TL}$ and $\widetilde{L}_{BL} \coloneqq \hat{L}_{BR}^{-1}A_{BL, 0}$.
+To solve this problem without generating duplicate solutions, we have the $A_{R, (n, x)}$ syntax for partially-updated regions that do not need to be in a strict sequential order, as well as the $(A_{R_1} \vee A_{R_2} \ldots \vee B_{R_k})$ syntax for specifying operations that could read from multiple different inputs.
+Using this syntax, the tasks for the multiplication are $L_{BL, (0, a)} \coloneqq -\hat{L}_{BR}^{-1}(\hat{L}_{BL} \vee L_{BL, (0, b)})$ and $L_{BL, (0, b)} \coloneqq (\hat{L}_{BL} \vee L_{BL, (0, a)})\widetilde{L}_{TL}$.
+
+We need to note that the operands to a $\vee$ must be memory states (translation into a more software-friendly expression will not work for $(-\hat{A}_R \vee A_{R, (0, b)})$).
+Similarly, if the whole expression can be split into a series of either-order tasks, like in the example shown above, there is no need to explicitly define $\widetilde{A}_R$4, since it will be implicitly defined by the logic of the algorithm (it is fine to refer to $\widetilde{A}_R$ in other expressions in this case).
+If the expression that was split is a subexpression that needs the entire split part to be computed, you should represent this as (for example) $A_{R, 1} \coloneqq F((A_{R, (0, a)} \wedge A_{R, (0, b)}), \ldots)$ (the exact representation is arbitrary).
+
+Once you have converted each equation into one or more tasks, you can translate the tasks for each operation you want to fuse into a task list that can be read by the \texttt{pme\_fusion} library.
+The translation operates as follows:
+\begin{itemize}
+\item Map each region (or other object) to an atom, which is either an alphanumeric (with underscores) symbol that starts with a lowercase letter or an arbitrary string in single quotes. For our examples, we will be mapping $A_R$ to \texttt{a\_r}
+\item Map the memory state $\hat{A}_R$ to \texttt{hat(a\_r)}, $\widetilde{A}_R$ to \texttt{tilde(a\_r)}, $A_{R, n}$ to \texttt{during(a\_r, n)}, and $A_{R, (n x)}$ to \texttt{during(a\_r, n, x)} (where \texttt{x} is an atom)
+
+  Regions that are only read during the whole fusion problem and never written do not need memory-state specifiers and can be treated as constants
+\item Write the task $X \coloneqq f(Y)$ as (translating the components) \texttt{eq(X, f(Y))}.
+
+  In general, the second argument to \texttt{eq} can be an arbitrarily nested sequence of functions (whose names are atoms) and atoms, so long as functions are not moved into a \texttt{hat()}, \texttt{during()}, or \texttt{tilde()}. The first argument must be a memory state.
+  For example, the first task in the bottom right of the Cholesky factorization can be written as \texttt{eq(during(a\_br, 0), sub(hat(a\_br), mul(tilde(a\_bl), tr(tilde(a\_bl)))))}.
+\item If a task is an operation task (written $\coloneqq_O$), use \texttt{op\_eq} and not \texttt{eq} in the translation
+\item If you have an equation that writes to multiple matrices, pick one as the final output and use the special task \texttt{comes\_from(SecondRegion, FirstRegion)} to represent this circumstance (see \texttt{examples/general\_inverse.pl} and \texttt{examples/general\_inverse.txt} for an example)
+\item Collect the tasks for each operation you want to fuse into a list (which are written in \texttt{[]}s)
+\item Sequence these lists into a larger list, which in the initial input to the library
+\end{itemize}
+
+Once you have such a list, you can present it to the software, which will print all fusable collections of loop invariants for the given expressions, as well as warning you about common issues with the inputs.
+The simple way to present such an input is to call the \texttt{gen\_invariants.pl} script, which will read a software-friendly list of task lists from a given file (or standard input) and print the results of the analysis.
+The outer list in the file must be followed by a period (\texttt{.}), and can contain Prolog-style comments, which begin with \texttt{\%}.
+For the Cholesky and linear solve, a potential input file, which can be found in \texttt{examples/chol\_trsm.txt} has the following form:
+\verbatiminput{../examples/chol_trsm.txt}
+
+The other option is to call the \texttt{pme\_fusion} library directly.
+This is very useful for cases where constructing the set of tasks by hand is tedious --- an example of this is available in \texttt{examples/tze\_meng\_sym\_multiply.pl}, which shows the fusion of $\widetilde{C} ((AM) + (AM)^T)$ with $\widetilde{C} = \hat{C} - MM^T$
+The typical way call the library is to use the \texttt{gen\_invariants(TaskLists)} function, which performs the same operations as the script of the same name.
+
+For a lower-level interface, which allows more control over filtering and printing, see the library documentation, especially \texttt{make\_pmes} and \texttt{fused\_invariants}.
+
+Once the software has found loop invariants, you can derive the algorithm by \textbf{TODO describe this?}.
+
+\end{document}
