@@ -2,6 +2,7 @@
 
 \usepackage[margin=1in]{geometry}
 \usepackage{mathtools,amsthm}
+\usepackage{adjustbox}
 \DeclarePairedDelimiter\ceil{\lceil}{\rceil}
 \DeclarePairedDelimiter\floor{\lfloor}{\rfloor}
 
@@ -88,6 +89,7 @@ Using this syntax, the tasks for the multiplication are $L_{BL, (0, a)} \coloneq
 
 We need to note that the operands to a $\vee$ must be memory states (translation into a more software-friendly expression will not work for $(-\hat{A}_R \vee A_{R, (0, b)})$).
 Similarly, if the whole expression can be split into a series of either-order tasks, like in the example shown above, there is no need to explicitly define $\widetilde{A}_R$4, since it will be implicitly defined by the logic of the algorithm (it is fine to refer to $\widetilde{A}_R$ in other expressions in this case).
+If you want to explicitly include $\widetilde{A}$, use a \texttt{comes\_from} task to do so.
 If the expression that was split is a subexpression that needs the entire split part to be computed, you should represent this as (for example) $A_{R, 1} \coloneqq F((A_{R, (0, a)} \wedge A_{R, (0, b)}), \ldots)$ (the exact representation is arbitrary).
 
 Once you have converted each equation into one or more tasks, you can translate the tasks for each operation you want to fuse into a task list that can be read by the \texttt{pme\_fusion} library.
@@ -102,7 +104,7 @@ The translation operates as follows:
   In general, the second argument to \texttt{eq} can be an arbitrarily nested sequence of functions (whose names are atoms) and atoms, so long as functions are not moved into a \texttt{hat()}, \texttt{during()}, or \texttt{tilde()}. The first argument must be a memory state.
   For example, the first task in the bottom right of the Cholesky factorization can be written as \texttt{eq(during(a\_br, 0), sub(hat(a\_br), mul(tilde(a\_bl), tr(tilde(a\_bl)))))}.
 \item If a task is an operation task (written $\coloneqq_O$), use \texttt{op\_eq} and not \texttt{eq} in the translation
-\item If you have an equation that writes to multiple matrices, pick one as the final output and use the special task \texttt{comes\_from(SecondRegion, FirstRegion)} to represent this circumstance (see \texttt{examples/general\_inverse.pl} and \texttt{examples/general\_inverse.txt} for an example)
+\item If you have an equation that writes to multiple matrices, pick one as the output and use the task \texttt{comes\_from(Region, Expr)} to represent a noop (see \texttt{examples/general\_inverse.pl} and \texttt{examples/general\_inverse.txt} for an example)
 \item Collect the tasks for each operation you want to fuse into a list (which are written in \texttt{[]}s)
 \item Sequence these lists into a larger list, which in the initial input to the library
 \end{itemize}
@@ -111,7 +113,47 @@ Once you have such a list, you can present it to the software, which will print 
 The simple way to present such an input is to call the \texttt{gen\_invariants.pl} script, which will read a software-friendly list of task lists from a given file (or standard input) and print the results of the analysis.
 The outer list in the file must be followed by a period (\texttt{.}), and can contain Prolog-style comments, which begin with \texttt{\%}.
 For the Cholesky and linear solve, a potential input file, which can be found in \texttt{examples/chol\_trsm.txt} has the following form:
-\verbatiminput{../examples/chol_trsm.txt}
+
+As an example, we will show how the PMEs given above for the Cholesky factorization and map to task expressions
+{\scriptsize%
+  % Taken from https://tex.stackexchange.com/questions/33585/change-font-size-of-an-align-environment
+  \setlength{\abovedisplayskip}{6pt}
+  \setlength{\belowdisplayskip}{\abovedisplayskip}
+  \setlength{\abovedisplayshortskip}{0pt}
+  \setlength{\belowdisplayshortskip}{3pt}
+\begin{align*}
+  &\FlaTwoByTwo{\widetilde{L}_{TL} \coloneqq_O CHOL(\hat{L}_{TL})}{*}
+  {\widetilde{L}_{BL} \coloneqq \hat{L}_{BL}\widetilde{L}_{TL}^{-T}}
+  {\begin{array}{c}
+     L_{BR, 0} \coloneqq \hat{L}_{BR} - \widetilde{L}_{BL}\widetilde{L}_{BL}^T;\\
+     \widetilde{L}_{BR} \coloneqq_O CHOL(L_{BR, 0})
+   \end{array}}\\
+  &\to\\
+  &\FlaTwoByTwo{\mathtt{op\_eq(tilde(l\_tl), chol(hat(l\_tl)))}}{*}
+    {\mathtt{eq(tilde(l\_bl), trsm(tilde(l\_tl), hat(l\_bl)))}}
+    {\begin{array}{c}
+       \mathtt{eq(during(l\_br, 0), sub(hat(l\_br), mul(tilde(l\_bl), tr(tilde(l\_bl)))))}\\
+       \mathtt{op\_eq(tilde(l\_br), chol(during(l\_br, 0)))}\\
+     \end{array}}
+\end{align*}%
+}%
+
+\begin{align*}
+  &\FlaTwoByOne{\widetilde{B}_T \coloneqq TRSM(\hat{L}_{TL}, \hat{B}_T)}
+  {\begin{array}{c}
+     B_{B, 0} \coloneqq \hat{B}_B - \hat{L}_{BL}\widetilde{B}_T\\
+     \widetilde{B}_B = TRSM(\hat{L}_{BR}, B_{B, 0})
+   \end{array}}\\
+ &\to\\
+  &\FlaTwoByOne{\mathtt{op\_eq(tilde(b\_t), trsm(hat(l\_tl), hat(b\_t)))}}
+  {\begin{array}{c}
+     \mathtt{eq(during(b\_b, 0), sub(hat(b\_b), mul(hat(l\_bl), tilde(b\_b))))}\\
+     \mathtt{op\_eq(tilde(b\_b), trsm(hat(l\_br), during(b\_1b, 0)))}
+  \end{array}}
+\end{align*}
+
+If we put these expressions together, we obtain the following input file, which can be found in \texttt{examples/chol\_trsm.txt}
+{\small \verbatiminput{../examples/chol_trsm.txt}}
 
 The other option is to call the \texttt{pme\_fusion} library directly.
 This is very useful for cases where constructing the set of tasks by hand is tedious --- an example of this is available in \texttt{examples/tze\_meng\_sym\_multiply.pl}, which shows the fusion of $\widetilde{C} ((AM) + (AM)^T)$ with $\widetilde{C} = \hat{C} - MM^T$
