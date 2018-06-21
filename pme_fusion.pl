@@ -121,13 +121,13 @@ A `task` is one of the following:
     `op_eq` is important, as it is used to ensure that the generated
     loops are capable of making progress towards computing an
     operation.
-  * comes_from(OutBaseState, InBaseState)
-    This is a special task used when the task that generates
-    InBaseState also creates OutBaseState in a different region. The
-    purpose of this task is to connect the computation of the two
-    regions so that one cannot remain while the other has been. This
-    is useful in cases such as the LU factorization, where the tasks
-    that generate `l_tl` also compute `u_tl`.
+  * comes_from(OutBaseState, InputTerm) This is a special task used
+    when the expression InputTerm also necessarily entails the
+    computation of OutBaseState. purpose of this task is to connect
+    the computation of the two states so that one cannot remain
+    uncomputed while the other has been. This is useful in cases such
+    as the LU factorization, where the tasks that generate `l_tl` also
+    compute `u_tl`.
 
 On input, each of the operations that is to be fused is represented
 as a list of tasks. Before the algorithms begins, these tasks are
@@ -211,7 +211,7 @@ operand_region(tilde(X), Y) :- X = Y.
 productive_task(eq(O, _)) :- base_operand(O).
 productive_task(op_eq(O, _)) :- base_operand(O).
 
-task(comes_from(O, I)) :- base_operand(O), base_operand(I), !.
+task(comes_from(O, _)) :- base_operand(O).
 task(X) :- productive_task(X).
 
 extract_operands([], Accum, Out) :- Out = Accum, !.
@@ -233,7 +233,7 @@ extract_term_operands(Term, Out) :-
 
 extract_operands(Term, Out) :- extract_operands(Term, [], Out).
 
-task_split(comes_from(O, I), In, Out) :- In = [I], Out = O.
+task_split(comes_from(O, I), In, Out) :- extract_operands(I, InOps), In = InOps, Out = O.
 task_split(eq(O, I), In, Out) :- extract_operands(I, InOps), In = InOps, Out = O.
 task_split(op_eq(O, I), In, Out) :- extract_operands(I, InOps), In = InOps, Out = O.
 
@@ -253,10 +253,6 @@ task_input(Task) :-
 
 task_output_region(Task, Out) :-
     task_output(Task, O),
-    (comes_from(_, I) = Task ->
-         ((base_operand(I), !);
-          format("ERROR: Invalid input ~w to comes_from task ~w~n", [I, Task]));
-     true),
     (base_operand(O) -> operand_region(O, Out);
      (format("ERROR, Invalid output ~w in task ~w~n", [O, Task]), fail)).
 
@@ -539,14 +535,22 @@ regions_make_progress(Regions) :-
     exists(has_op_in_future, Regions, FutureReg),
     PastReg.id \== FutureReg.id, !.
 
+task_output_flip(Region, Task) :- task_output(Task, Region).
+
+state_in_past(Regions, any(States)) :- !,
+    exists_one(state_in_past(Regions), States).
+state_in_past(Regions, State) :-
+    operand_region(State, StateReg),
+    region_with_id(StateReg, Regions, Region),
+    exists_one(task_output_flip(State), Region.past).
+
+no_floating_noops_future(Regions, comes_from(_, In)) :- !,
+    extract_operands(In, InOps),
+    \+ maplist(state_in_past(Regions), InOps).
+no_floating_noops_future(_, _).
+
 no_floating_noops(Regions, Region) :-
-    (Region.tasks = [comes_from(_Out, In)]) ->
-        (operand_region(In, InId),
-         ((InId == Region.id, !);
-          (region_with_id(InId, Regions, InReg),
-           ((InReg.future == []) -> (Region.future == []);
-            (Region.past == [])))));
-    true.
+    no_floating_noops_future(Regions, Region.future).
 
 no_floating_noops(Regions) :-
     maplist(no_floating_noops(Regions), Regions).
