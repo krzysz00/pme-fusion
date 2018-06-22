@@ -20,6 +20,7 @@ trinv_tasks(InTl,       OutTl,
               mul(any([during(OutBl, 0, b), hat(InBl)]), tilde(OutTl))),
            eq(during(OutBl, 0, b),
               mul(any([during(OutBl, 0, a), hat(InBl)]), hat(InBr))),
+           comes_from(tilde(OutBl), and(during(OutBl, 0, a), during(OutBl, 0, b))),
 
            op_eq(tilde(OutBr), inverse(hat(InBr)))].
 

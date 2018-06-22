@@ -128,6 +128,14 @@ A `task` is one of the following:
     uncomputed while the other has been. This is useful in cases such
     as the LU factorization, where the tasks that generate `l_tl` also
     compute `u_tl`.
+  * const(BaseState) this is a task that is generally automatically
+    created, which represents a region that is a pure input - that is,
+    one that is not ever updated by the algorithm. The purpose of this
+    tasks is to allow maintaining a consistent direction of iteration
+    when ensuring that requires analyzing such inputs. These tasks
+    follow the typical fusion analysis, and have the additional
+    restriction that they cannot be in the loop invariant unless one
+    of the tasks that depends on them is.
 
 On input, each of the operations that is to be fused is represented
 as a list of tasks. Before the algorithms begins, these tasks are
@@ -208,10 +216,24 @@ operand_region(during(X, _), Y) :- X = Y.
 operand_region(during(X, _, _), Y) :- X = Y.
 operand_region(tilde(X), Y) :- X = Y.
 
+operands_regions_set([], Acc, Out) :- Acc = Out.
+operands_regions_set([any(Ops)|Tl], Acc, Out) :- !,
+    maplist(operand_region, Ops, OpRegionsWithDups),
+    sort(OpRegionsWithDups, OpRegions),
+    ord_union(OpRegions, Acc, NewAcc),
+    operands_regions_set(Tl, NewAcc, Out).
+operands_regions_set([Op|Tl], Acc, Out) :-
+    operand_region(Op, OpReg),
+    ord_add_element(Acc, OpReg, NewAcc),
+    operands_regions_set(Tl, NewAcc, Out).
+
+operands_regions_set(Ops, Out) :- operands_regions_set(Ops, [], Out).
+
 productive_task(eq(O, _)) :- base_operand(O).
 productive_task(op_eq(O, _)) :- base_operand(O).
 
 task(comes_from(O, _)) :- base_operand(O).
+task(const(O)) :- base_operand(O).
 task(X) :- productive_task(X).
 
 extract_operands([], Accum, Out) :- Out = Accum, !.
@@ -233,13 +255,15 @@ extract_term_operands(Term, Out) :-
 
 extract_operands(Term, Out) :- extract_operands(Term, [], Out).
 
-task_split(comes_from(O, I), In, Out) :- extract_operands(I, InOps), In = InOps, Out = O.
-task_split(eq(O, I), In, Out) :- extract_operands(I, InOps), In = InOps, Out = O.
 task_split(op_eq(O, I), In, Out) :- extract_operands(I, InOps), In = InOps, Out = O.
+task_split(eq(O, I), In, Out) :- extract_operands(I, InOps), In = InOps, Out = O.
+task_split(comes_from(O, I), In, Out) :- extract_operands(I, InOps), In = InOps, Out = O.
+task_split(const(O), In, Out) :- Out = O, In = [].
 
 task_output(op_eq(O, _), O) :- !.
 task_output(eq(O, _), O) :- !.
 task_output(comes_from(O, _), O) :- !.
+task_output(const(O), O) :- !.
 task_output(Task) :-
     format("ERROR: ~w is not a task in task list~n", [Task]),
     fail.
@@ -247,6 +271,7 @@ task_output(Task) :-
 task_input(op_eq(_, I), I) :- !.
 task_input(eq(_, I), I) :- !.
 task_input(comes_from(_, I), I) :- !.
+task_input(const(_), []) :- !.
 task_input(Task) :-
     format("ERROR: ~w is not a task in task list~n", [Task]),
     fail.
@@ -266,7 +291,7 @@ collect_extra_input_regions(OutRegions, [Term|Terms], Acc, ExtraInRegions) :- !,
 collect_extra_input_regions(OutRegions, Term, Acc, ExtraInRegions) :-
     base_operand(Term) -> (operand_region(Term, Reg),
                          (ord_memberchk(Reg, OutRegions), ExtraInRegions = Acc, !;
-                          format("WARNING: Region ~w (from ~w) doesn't appear as an output anywhere~n", [Reg, Term]),
+                          format("INFO: Region ~w (from ~w) doesn't appear as an output anywhere. Pure input analysis is being applied.~n", [Reg, Term]),
                           ord_add_element(Acc, Reg, ExtraInRegions)));
     any(Ops) = Term -> (collect_extra_input_regions(OutRegions, Ops, [], SubAcc),
                         ord_union(Acc, SubAcc, ExtraInRegions));
@@ -289,6 +314,7 @@ find_regions_as_constants(Regions, Parent, Term) :-
     true.
 find_regions_as_constants(Regions, Term) :-
     find_regions_as_constants(Regions, Term, Term).
+
 
 collect_extra_input_regions(OutRegions, Term, ExtraInRegions) :-
     collect_extra_input_regions(OutRegions, Term, [], ExtraInRegions).
@@ -333,6 +359,17 @@ add_empty_regions_([Id|Ids], IdTasks, NewIdTasks) :-
 add_empty_regions(Ids, IdTasks, NewIdTasks) :-
     maplist(add_empty_regions_(Ids), IdTasks, NewIdTasks).
 
+to_const_task(Symbol, Region) :- Region = Symbol-[const(hat(Symbol))].
+
+add_const_tasks([], [], Acc, NewRegs) :- reverse(Acc, NewRegs).
+add_const_tasks([Loop|Loops], [Extras|MoreExtras], Acc, NewRegs) :-
+    maplist(to_const_task, Extras, ExtraRegions),
+    append(ExtraRegions, Loop, NewLoop),
+    add_const_tasks(Loops, MoreExtras, [NewLoop|Acc], NewRegs).
+
+add_const_tasks(IdTasks, ExtraRegions, NewIdTasks) :-
+    add_const_tasks(IdTasks, ExtraRegions, [], NewIdTasks).
+
 %! make_pme(+TaskList:task_list, -Regions:region_list) is semidet.
 %
 % Convenience wrapper around make_pmes/2 for the case when there
@@ -361,10 +398,13 @@ make_pmes(TaskLists, PMEs) :-
     maplist(pairs_keys, IdTasks, RegionsByLoop), % Sorted by the gather
     ord_union(RegionsByLoop, AllOutRegions),
     maplist(maplist(task_input), TaskLists, TaskInputs),
-    collect_extra_input_regions(AllOutRegions, TaskInputs, ExtraInRegions),
-    ord_union(AllOutRegions, ExtraInRegions, AllRegions),
+    % Find where we need a const() task in any loop
+    maplist(collect_extra_input_regions(AllOutRegions), TaskInputs, ExtraInRegions),
+    add_const_tasks(IdTasks, ExtraInRegions, IdTasksWithConst),
+    ord_union(ExtraInRegions, FlatExtraInRegions),
+    ord_union(AllOutRegions, FlatExtraInRegions, AllRegions),
     find_regions_as_constants(AllRegions, TaskInputs),
-    add_empty_regions(AllRegions, IdTasks, FullIdTasks),
+    add_empty_regions(AllRegions, IdTasksWithConst, FullIdTasks),
     maplist(maplist(region_with_tasks), FullIdTasks, PMEs).
 
 is_region(region{id:_, tasks:Tasks, past:Past, future:Future}) :-
@@ -537,20 +577,38 @@ regions_make_progress(Regions) :-
 
 task_output_flip(Region, Task) :- task_output(Task, Region).
 
-state_in_past(Regions, any(States)) :- !,
+state_computed_in_past(Regions, any(States)) :- !,
     exists_one(state_in_past(Regions), States).
-state_in_past(Regions, State) :-
+state_computed_in_past(Regions, State) :-
     operand_region(State, StateReg),
     region_with_id(StateReg, Regions, Region),
     exists_one(task_output_flip(State), Region.past).
 
 no_floating_noops_future(Regions, comes_from(_, In)) :- !,
     extract_operands(In, InOps),
-    \+ maplist(state_in_past(Regions), InOps).
+    \+ maplist(state_computed_in_past(Regions), InOps).
 no_floating_noops_future(_, _).
 
+no_pointless_const_computation_past(PastInSymbolSet, const(Out)) :- !,
+    operand_region(Out, Reg),
+    ord_memberchk(Reg, PastInSymbolSet).
+no_pointless_const_computation_past(_, _).
+
+no_pointless_const_computation_future(PastInSymbolSet, const(Out)) :- !,
+    operand_region(Out, Reg),
+    \+ ord_memberchk(Reg, PastInSymbolSet).
+no_pointless_const_computation_future(_, _).
+
+no_pointless_const_computation(Regions) :-
+    collect_field(Regions, past, Pasts),
+    collect_field(Regions, future, Futures),
+    partition_task_operands(Pasts, PastInputs, _),
+    operands_regions_set(PastInputs, OpSet),
+    maplist(no_pointless_const_computation_past(OpSet), Pasts),
+    maplist(no_pointless_const_computation_future(OpSet), Futures).
+
 no_floating_noops(Regions, Region) :-
-    no_floating_noops_future(Regions, Region.future).
+    maplist(no_floating_noops_future(Regions), Region.future).
 
 no_floating_noops(Regions) :-
     maplist(no_floating_noops(Regions), Regions).
@@ -609,6 +667,7 @@ valid_loop_invariant(Invariant) :-
     %% might_have_rank_k_update(Invariant),
     regions_make_progress(Invariant),
     no_floating_noops(Invariant),
+    no_pointless_const_computation(Invariant),
     dependencies_preserved(Invariant).
 
 %! fused_invariants(?Invariants:region_list_list) is nondet.

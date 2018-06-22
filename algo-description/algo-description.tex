@@ -164,6 +164,17 @@ We can split the subtraction into $A_{TR, (0, a)}$ and $A_{TR, (0, b)}$ as shown
 Our resolution relies on the fact that our analysis does not take into account the structure of the tasks and only extracts out the (disjunctions of) memory states from the expressions.
 Therefore, we can write the final task as $\widetilde{C}_{TR} \coloneqq_O \Omega(C_{TR, (0, a)} \wedge C_{TR, (0, b)})$ or as $\widetilde{C}_{TR} \coloneqq_O \Omega(\operatorname{all}(C_{TR, (0, a)}, C_{TR, (0, b)}))$ or in any other notation the user finds convenient.
 
+An alternate method for representing such cases is enabled by the ``comes from'' task, which represents noops.
+This task, which has the form $S \leftarrow f(\ldots)$, is equivalent to $S \coloneqq \ldots$, except that if all of its dependencies are computed, it must also be computed.
+For example, $\widetilde{U}_{TL} \leftarrow \widetilde{L}_{TL}$ means that, if $\widetilde{L}_{TL}$ is computed in the loop invariant, $\widetilde{U}_{TL}$ must also be computed.
+This task is useful for encoding equations with multiple outputs, and for providing names for expressions such as $C_{TR, (0, a)} \wedge C_{TR, (0, b)}$ from above.
+
+One final type of task, which only appears, is the constant task, $const(\hat{A}_R)$.
+This task has no input dependencies, and is used internally in order to ensure that the direction of iteration through pure inputs that are not shared between loops.
+This task is automatically created by the software in the cases where it is necessary, such as the fusion of $\widetilde{y} \coloneqq A\hat{x}$ and $\widetilde{w} \coloneqq B\hat{x}$.
+The additional constraint on this task is that it can be in the loop invariant if and only if $\hat{A}_R$ appears elsewhere in the invariant.
+This condition, combined with the constraints on loop fusion, prevents the system from generating ``fusable'' loops that iterate through pure inputs, such at $\hat{x}$ in different directions.
+
 \subsection{Finding invariants for one PME}
 We can now present our method for finding all the loop invariants for one PME now that we have defined how to split a PME into tasks.
 This problem amounts to finding splits of each region's set of tasks $T_R$, into disjoint sets $P_R$ (the ``past'' or loop invariant) and $F_R$ (the ``future'' or remainder) such that $T_R = P_R \cup F_R$ such that the tasks in the past/future satisfy the conditions needed to create a valid loop invariant.
@@ -275,11 +286,7 @@ If the empty region is at the beginning of the loop, it will serve to produce th
 The second issue that arises with multiple output matrices is tasks that write to multiple regions.
 The usual example of this arises during the computation of the $LU$ factorization, where, mathematically, we want $\{\widetilde{L}, \widetilde{U}\} = LU(\hat{A})$.
 However, our system as currently specified only allows for tasks to create one output.
-
-Since this is a rare special case, we chose not to complicate the dependency-handling logic by introducing the ``comes from'' task, written $\widetilde{A}_S \leftarrow \widetilde{A}_R$
-This task functions like a normal function except that, to prevent semantically duplicate results, if $A_R$ is computed, $A_S$ must also be computed\footnote{We could probably make this more general, but we haven't found a use case for that}.
-This allows for a limited form of no-op task that enables our system to handle the multiple-output case without large changes.
-
+These issues must be resolved by declaring comes from tasks, such as $\widetilde{U}_{TL} \leftarrow \widetilde{L}_{TL}$ to introduce the additional regions thorough noops.
 \subsection{An example}
 To demonstrate the operation of this theory, we can consider the inversion of a symmetric matrix, given by the following three task based PMEs. (We will tag operation tasks with $\coloneqq_O$).
 The operations needed to invert a symmetric matrix $A$ are the Cholesky factorization, followed by a triangular inverse and the multiplication $AA^{T}$.

@@ -1,0 +1,19 @@
+[% Op 1
+ [%21L
+  op_eq(during(s12_l, 0, a), add(any([hat(s12_l), during(s12_l, 0, b)]),
+                                 mul(hat(a21_l), hat(a22_tl)))),
+  eq(during(s12_l, 0, b), add(any([hat(s12_l), during(s12_l, 0, a)]),
+                              mul(hat(a21_r), hat(a22_tr)))),
+  %s12_r
+  eq(during(s12_r, 0, b), add(any([hat(s12_r), during(s12_r, 0, a)]),
+                              mul(hat(a21_l), tr(hat(a22_tr))))),
+  op_eq(during(s12_r, 0, a), add(any([hat(s12_r), during(s12_r, 0, b)]),
+                                 mul(hat(a21_r), hat(a22_br))))
+ ],
+ % Op 2
+ [%S22_TL
+  op_eq(tilde(s22_tl), add(hat(a22_tl), mul(tr(hat(a21_l)), hat(a21_l)))),
+  eq(tilde(s22_tr), add(hat(a22_tr), mul(tr(hat(a21_l)), hat(a21_r)))),
+  op_eq(tilde(s22_br), add(hat(a22_br), mul(tr(hat(a21_r)), hat(a21_r))))
+ ]
+].

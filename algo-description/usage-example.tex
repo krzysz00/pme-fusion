@@ -99,6 +99,7 @@ The translation operates as follows:
 \item Map the memory state $\hat{A}_R$ to \texttt{hat(a\_r)}, $\widetilde{A}_R$ to \texttt{tilde(a\_r)}, $A_{R, n}$ to \texttt{during(a\_r, n)}, and $A_{R, (n x)}$ to \texttt{during(a\_r, n, x)} (where \texttt{x} is an atom)
 
   Regions that are only read during the whole fusion problem and never written do not need memory-state specifiers and can be treated as constants
+  However, if they are annotated with \texttt{hat(Region)}, the system will assume that they come from an object you plan to iterate over and restrict its analysis to account for this.
 \item Write the task $X \coloneqq f(Y)$ as (translating the components) \texttt{eq(X, f(Y))}.
 
   In general, the second argument to \texttt{eq} can be an arbitrarily nested sequence of functions (whose names are atoms) and atoms, so long as functions are not moved into a \texttt{hat()}, \texttt{during()}, or \texttt{tilde()}. The first argument must be a memory state.
