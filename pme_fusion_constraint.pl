@@ -26,46 +26,47 @@ maplist2_([H|T], L2, Pred) :-
     maplist(call(Pred, H), L2),
     maplist2_(T, L2, Pred).
 
-base_operand(hat(X)) :- atom(X).
-base_operand(during(X, N)) :- atom(X), integer(N).
-base_operand(during(X, N, V)) :- atom(X), integer(N), atom(V).
-base_operand(tilde(X)) :- atom(X).
+base_state(hat(X)) :- atom(X).
+base_state(during(X, N)) :- atom(X), integer(N).
+base_state(during(X, N, V)) :- atom(X), integer(N), atom(V).
+base_state(tilde(X)) :- atom(X).
 
-operand(any(Ops)) :- maplist(base_operand, Ops), !.
-operand(X) :- base_operand(X).
+state(any(States)) :- maplist(base_state, States), !.
+state(X) :- base_state(X).
 
-operand_region(any(Ops), Y) :-
-    maplist(operand_region, Ops, OpRegionsWithDups),
-    sort(OpRegionsWithDups, OpRegions),
-    member(Y, OpRegions).
-operand_region(hat(X), X).
-operand_region(during(X, _), X).
-operand_region(during(X, _, _), X).
-operand_region(tilde(X), X).
+state_region(any(States), Y) :-
+    maplist(state_region, States, StateRegionsWithDups),
+    sort(StateRegionsWithDups, StateRegions),
+    member(Y, StateRegions).
+state_region(hat(X), X).
+state_region(during(X, _), X).
+state_region(during(X, _, _), X).
+state_region(tilde(X), X).
 
-operands_regions_set([], Acc, Out) :- Acc = Out.
-operands_regions_set([any(Ops)|Tl], Acc, Out) :- !,
-    maplist(operand_region, Ops, OpRegionsWithDups),
-    sort(OpRegionsWithDups, OpRegions),
-    ord_union(OpRegions, Acc, NewAcc),
-    operands_regions_set(Tl, NewAcc, Out).
-operands_regions_set([Op|Tl], Acc, Out) :-
-    operand_region(Op, OpReg),
-    ord_add_element(Acc, OpReg, NewAcc),
-    operands_regions_set(Tl, NewAcc, Out).
+states_regions_set([], Acc, Out) :- Acc = Out.
+states_regions_set([any(States)|Tl], Acc, Out) :- !,
+    maplist(state_region, States, StateRegionsWithDups),
+    sort(StateRegionsWithDups, StateRegions),
+    ord_union(StateRegions, Acc, NewAcc),
+    states_regions_set(Tl, NewAcc, Out).
+states_regions_set([State|Tl], Acc, Out) :-
+    state_region(State, StateReg),
+    ord_add_element(Acc, StateReg, NewAcc),
+    states_regions_set(Tl, NewAcc, Out).
 
-operands_regions_set(Ops, Out) :- operands_regions_set(Ops, [], Out).
+states_regions_set(States, Out) :-
+    states_regions_set(States, [], Out).
 
-productive_task(eq(O, _)) :- base_operand(O).
-productive_task(op_eq(O, _)) :- base_operand(O).
+productive_task(eq(O, _)) :- base_state(O).
+productive_task(op_eq(O, _)) :- base_state(O).
 
-task(comes_from(O, _)) :- base_operand(O).
-task(const(O)) :- base_operand(O).
+task(comes_from(O, _)) :- base_state(O).
+task(const(O)) :- base_state(O).
 task(X) :- productive_task(X).
 
-task_split(op_eq(O, I), In, Out) :- extract_operands(I, InOps), In = InOps, Out = O.
-task_split(eq(O, I), In, Out) :- extract_operands(I, InOps), In = InOps, Out = O.
-task_split(comes_from(O, I), In, Out) :- extract_operands(I, InOps), In = InOps, Out = O.
+task_split(op_eq(O, I), In, Out) :- extract_states(I, InOps), In = InOps, Out = O.
+task_split(eq(O, I), In, Out) :- extract_states(I, InOps), In = InOps, Out = O.
+task_split(comes_from(O, I), In, Out) :- extract_states(I, InOps), In = InOps, Out = O.
 task_split(const(O), In, Out) :- Out = O, In = [].
 
 task_output(op_eq(O, _), O) :- !.
@@ -84,14 +85,14 @@ task_input(Task) :-
     format("ERROR: ~w is not a task in task list~n", [Task]),
     fail.
 
-extract_operands(Term, Acc, Out) :-
-    operand(Term) -> ord_add_element(Acc, Term, Out);
-    is_list(Term) -> foldl(extract_operands, Term, Acc, Out);
+extract_states(Term, Acc, Out) :-
+    state(Term) -> ord_add_element(Acc, Term, Out);
+    is_list(Term) -> foldl(extract_states, Term, Acc, Out);
     compound(Term) -> (compound_name_arguments(Term, _, Args),
-                       foldl(extract_operands, Args, Acc, Out));
+                       foldl(extract_states, Args, Acc, Out));
     Out = Acc.
 
-extract_operands(Term, Out) :- extract_operands(Term, [], Out).
+extract_states(Term, Out) :- extract_states(Term, [], Out).
 
 preceeds_flip(X, Y) :- preceeds(Y, X).
 
@@ -105,14 +106,14 @@ preceeds(during(X, M, _), during(X, N, _)) :- M < N.
 preceeds(during(X, _), tilde(X)).
 preceeds(during(X, _, _), tilde(X)).
 
-preceeds(any(States1), any(States2)) :- !, exists_one(preceeds, States1, States2).
-preceeds(any(States), Y) :- exists_one(preceeds_flip(Y), States).
-preceeds(X, any(States)) :- exists_one(preceeds(X), States).
+required_for_past_input(Input, Input) :- !.
+required_for_past_input(State, Input) :- preceeds(State, Input).
 
-must_be_in_past_on_past_input(Input, Input) :- !.
-must_be_in_past_on_past_input(State, Input) :- preceeds(State, Input).
+required_for_past_input_flip(Input, State) :- required_for_past_input(State, Input).
 
-must_be_in_future_on_future_input(State, Input) :- preceeds(Input, State).
+required_for_future_input(State, Input) :- preceeds(Input, State).
+
+required_for_future_input_flip(Input, State) :- required_for_future_input(State, Input).
 
 out_states_of(Tasks, StateSet) :-
     maplist(task_output, Tasks, States),
@@ -135,29 +136,60 @@ tasks_to_indicators(Tasks, Indicators, StateSet) :-
     maplist(indicator_pair, StateSet, Entries),
     ord_list_to_assoc(Entries, Indicators).
 
-add_past_constraints(Indicators, OutTaskVar, OtherState, InState) :-
-    (must_be_in_past_on_past_input(OtherState, InState),
-     get_assoc(OtherState, Indicators, OtherVar)) ->
-        (format("  Constraining for ~w because of ~w~n", [OtherState, InState]),
-         (OutTaskVar #= 1) #==> (OtherVar #= 1)); true.
+states_needed_for_past_input(StateSet, InState, List) :-
+    include(required_for_past_input_flip(InState), StateSet, List).
 
-add_past_constraints(Indicators, StateSet, Task) :-
+states_needed_for_future_input(StateSet, InState, List) :-
+    include(required_for_future_input_flip(InState), StateSet, List).
+
+build_base_dep_constraint_(_Type, _Indicators, [], Constraint) :- Constraint = 1.
+build_base_dep_constraint_(Type, Indicators, [State], Constraint) :-
+    get_assoc(State, Indicators, Var),
+    Constraint = (Var #= Type).
+
+build_base_dep_constraint_(Type, Indicators, [State|[Next|Tail]], Constraint) :-
+    get_assoc(State, Indicators, Var),
+    build_base_dep_constraint_(Type, Indicators, [Next|Tail], SubConstr),
+    Constraint = ((Var #= Type) #/\ SubConstr).
+
+build_base_dep_constraint(1, Indicators, StateSet, Input, Constraint) :-
+    states_needed_for_past_input(StateSet, Input, RelevantStates),
+    build_base_dep_constraint_(1, Indicators, RelevantStates, Constraint).
+
+build_base_dep_constraint(0, Indicators, StateSet, Input, Constraint) :-
+    states_needed_for_future_input(StateSet, Input, RelevantStates),
+    build_base_dep_constraint_(0, Indicators, RelevantStates, Constraint).
+
+build_any_dep_constraint(Type, Indicators, StateSet, [Input], Constraint) :-
+    % Yes, this preserves 1s, that's intentional
+    build_base_dep_constraint(Type, Indicators, StateSet, Input, Constraint).
+
+build_any_dep_constraint(Type, Indicators, StateSet, [Input|[Next|Inputs]], Constraint) :-
+    build_any_dep_constraint(Type, Indicators, StateSet, [Next|Inputs], SubConstraint),
+    build_base_dep_constraint(Type, Indicators, StateSet, Input, NewConstraint),
+    Constraint = (NewConstraint #\/ SubConstraint).
+
+add_dep_constraint(_Type, _Indicators, _OutTaskVar, _StateSet, any([])) :-
+    format("ERROR: Empty any input~n"), fail.
+add_dep_constraint(Type, Indicators, OutTaskVar, StateSet, any([State])) :-
+    add_dep_constraint(Type, Indicators, OutTaskVar, StateSet, State).
+add_dep_constraint(Type, Indicators, OutTaskVar, StateSet, any([State|[Next|Rest]])) :-
+    build_any_dep_constraint(Type, Indicators, StateSet, [State|[Next|Rest]], Constraint),
+    (OutTaskVar #= Type) #==> Constraint.
+
+add_dep_constraint(Type, Indicators, OutTaskVar, StateSet, InState) :- base_state(InState),
+    build_base_dep_constraint(Type, Indicators, StateSet, InState, Constraint),
+    ((Constraint \== 1) -> ((OutTaskVar #= Type) #==> Constraint); true).
+
+add_past_dep_constraints(Indicators, StateSet, Task) :-
     task_split(Task, Inputs, Output),
     get_assoc(Output, Indicators, OutVar),
-    format("Constraining past for ~w~n", [Output]),
-    maplist2(add_past_constraints(Indicators, OutVar), StateSet, Inputs).
+    maplist(add_dep_constraint(1, Indicators, OutVar, StateSet), Inputs).
 
-add_future_constraints(Indicators, OutTaskVar, OtherState, InState) :-
-    (must_be_in_future_on_future_input(OtherState, InState),
-     get_assoc(OtherState, Indicators, OtherVar)) ->
-        (format("  Constraining for ~w because of ~w~n", [OtherState, InState]),
-         (OutTaskVar #= 0) #==> (OtherVar #= 0)); true.
-
-add_future_constraints(Indicators, StateSet, Task) :-
+add_future_dep_constraints(Indicators, StateSet, Task) :-
     task_split(Task, Inputs, Output),
     get_assoc(Output, Indicators, OutVar),
-    format("Constraining future for ~w~n", [Output]),
-    maplist2(add_future_constraints(Indicators, OutVar), StateSet, Inputs).
+    maplist(add_dep_constraint(0, Indicators, OutVar, StateSet), Inputs).
 
 gather_operation_task_vars(_, [], Acc, Out) :- Out = Acc.
 gather_operation_task_vars(Indicators, [op_eq(Reg, _)|Tasks], Acc, Out) :- !,
@@ -182,8 +214,8 @@ placed_in_past(Indicators, Task) :-
 
 loop_invariants(Tasks, Past, Future) :-
     tasks_to_indicators(Tasks, Indicators, StateSet),
-    maplist(add_past_constraints(Indicators, StateSet), Tasks),
-    maplist(add_future_constraints(Indicators, StateSet), Tasks),
+    maplist(add_past_dep_constraints(Indicators, StateSet), Tasks),
+    maplist(add_future_dep_constraints(Indicators, StateSet), Tasks),
     add_loop_progress_constraints(Indicators, Tasks),
     assoc_to_values(Indicators, AllVars),
     labeling([ffc], AllVars),
