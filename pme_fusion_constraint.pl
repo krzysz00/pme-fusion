@@ -127,8 +127,6 @@ indicator_pair(OutState, OutIndicatorPair) :-
     OutIndicatorPair = OutState-Var.
 
 % TODO:
-% - any()
-% - comes_from
 % - Pure inputs
 % - Fusion
 tasks_to_indicators(Tasks, Indicators, StateSet) :-
@@ -142,7 +140,7 @@ states_needed_for_past_input(StateSet, InState, List) :-
 states_needed_for_future_input(StateSet, InState, List) :-
     include(required_for_future_input_flip(InState), StateSet, List).
 
-build_base_dep_constraint_(_Type, _Indicators, [], Constraint) :- Constraint = 1.
+build_base_dep_constraint_(_Type, _Indicators, [], 1).
 build_base_dep_constraint_(Type, Indicators, [State], Constraint) :-
     get_assoc(State, Indicators, Var),
     Constraint = (Var #= Type).
@@ -207,6 +205,23 @@ add_loop_progress_constraints(Indicators, Tasks) :-
     sum(Vars, #\=, 0),
     sum(Vars, #\=, NOps).
 
+build_comes_from_constraint_lhs(_Indicators, [], 1).
+build_comes_from_constraint_lhs(Indicators, [Input], Constraint) :-
+    get_assoc(Input, Indicators, Var),
+    Constraint = (Var #= 1).
+build_comes_from_constraint_lhs(Indicators, [Input|[Next|Rest]], Constraint) :-
+    get_assoc(Input, Indicators, Var),
+    build_comes_from_constraint_lhs(Indicators, [Next|Rest], SubConstr),
+    Constraint = ((Var #= 1) #/\ SubConstr).
+
+add_comes_from_constraint(Indicators, StateSet, comes_from(Out, Expr)) :- !,
+    get_assoc(Out, Indicators, OutVar),
+    extract_states(Expr, InputSet),
+    ord_intersection(StateSet, InputSet, RelevantInputs),
+    build_comes_from_constraint_lhs(Indicators, RelevantInputs, Constraint),
+    Constraint #==> (OutVar #= 1).
+add_comes_from_constraint(_, _, _).
+
 placed_in_past(Indicators, Task) :-
     task_output(Task, State),
     get_assoc(State, Indicators, Var),
@@ -216,6 +231,7 @@ loop_invariants(Tasks, Past, Future) :-
     tasks_to_indicators(Tasks, Indicators, StateSet),
     maplist(add_past_dep_constraints(Indicators, StateSet), Tasks),
     maplist(add_future_dep_constraints(Indicators, StateSet), Tasks),
+    maplist(add_comes_from_constraint(Indicators, StateSet), Tasks),
     add_loop_progress_constraints(Indicators, Tasks),
     assoc_to_values(Indicators, AllVars),
     labeling([ffc], AllVars),
