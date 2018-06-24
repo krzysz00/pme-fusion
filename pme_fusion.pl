@@ -211,10 +211,10 @@ operand_region(any(Ops), Y) :-
     maplist(operand_region, Ops, OpRegionsWithDups),
     sort(OpRegionsWithDups, OpRegions),
     member(Y, OpRegions).
-operand_region(hat(X), Y) :- X = Y.
-operand_region(during(X, _), Y) :- X = Y.
-operand_region(during(X, _, _), Y) :- X = Y.
-operand_region(tilde(X), Y) :- X = Y.
+operand_region(hat(X), X).
+operand_region(during(X, _), X).
+operand_region(during(X, _, _), X).
+operand_region(tilde(X), X).
 
 operands_regions_set([], Acc, Out) :- Acc = Out.
 operands_regions_set([any(Ops)|Tl], Acc, Out) :- !,
