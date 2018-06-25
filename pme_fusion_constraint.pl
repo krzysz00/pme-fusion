@@ -43,7 +43,7 @@ state_region(during(X, _), X).
 state_region(during(X, _, _), X).
 state_region(tilde(X), X).
 
-states_regions_set([], Acc, Out) :- Acc = Out.
+states_regions_set([], Acc, Acc).
 states_regions_set([any(States)|Tl], Acc, Out) :- !,
     maplist(state_region, States, StateRegionsWithDups),
     sort(StateRegionsWithDups, StateRegions),
@@ -85,6 +85,10 @@ task_input(Task) :-
     format("ERROR: ~w is not a task in task list~n", [Task]),
     fail.
 
+task_output_region(Task, Region) :-
+    task_output(Task, Output),
+    state_region(Output, Region).
+
 extract_states(Term, Acc, Out) :-
     state(Term) -> ord_add_element(Acc, Term, Out);
     is_list(Term) -> foldl(extract_states, Term, Acc, Out);
@@ -93,6 +97,28 @@ extract_states(Term, Acc, Out) :-
     Out = Acc.
 
 extract_states(Term, Out) :- extract_states(Term, [], Out).
+
+extract_base_states(Term, Acc, Out) :-
+    base_state(Term) -> ord_add_element(Acc, Term, Out);
+    is_list(Term) -> foldl(extract_states, Term, Acc, Out);
+    compound(Term) -> (compound_name_arguments(Term, _, Args),
+                       foldl(extract_states, Args, Acc, Out));
+    Out = Acc.
+
+extract_base_states(Term, Out) :- extract_states(Term, [], Out).
+
+tasks_grouped_by_region(TaskList, IdTasks) :-
+    map_list_to_pairs(task_output_region, TaskList, Pairs),
+    keysort(Pairs, Sorted),
+    group_pairs_by_key(Sorted, IdTasks).
+
+pair_with_domain(Lower, Upper, Key, Out) :-
+    Var in Lower..Upper,
+    Out = Key-Var.
+
+assoc_with_domain(OrdKeys, Lower, Upper, Assoc) :-
+    maplist(pair_with_domain(Lower, Upper), OrdKeys, Entries),
+    ord_list_to_assoc(Entries, Assoc).
 
 preceeds_flip(X, Y) :- preceeds(Y, X).
 
@@ -122,17 +148,9 @@ out_states_of(Tasks, StateSet) :-
     length(StateSet, N),
     (NRaw =:= N, !; format("Error: multiple tasks for one memory state~n"), fail).
 
-indicator_pair(OutState, OutIndicatorPair) :-
-    Var in 0..1,
-    OutIndicatorPair = OutState-Var.
-
-% TODO:
-% - Pure inputs
-% - Fusion
 tasks_to_indicators(Tasks, Indicators, StateSet) :-
     out_states_of(Tasks, StateSet),
-    maplist(indicator_pair, StateSet, Entries),
-    ord_list_to_assoc(Entries, Indicators).
+    assoc_with_domain(StateSet, 0, 1, Indicators).
 
 states_needed_for_past_input(StateSet, InState, List) :-
     include(required_for_past_input_flip(InState), StateSet, List).
@@ -189,7 +207,7 @@ add_future_dep_constraints(Indicators, StateSet, Task) :-
     get_assoc(Output, Indicators, OutVar),
     maplist(add_dep_constraint(0, Indicators, OutVar, StateSet), Inputs).
 
-gather_operation_task_vars(_, [], Acc, Out) :- Out = Acc.
+gather_operation_task_vars(_, [], Acc, Acc).
 gather_operation_task_vars(Indicators, [op_eq(Reg, _)|Tasks], Acc, Out) :- !,
     get_assoc(Reg, Indicators, Var),
     gather_operation_task_vars(Indicators, Tasks, [Var|Acc], Out).
@@ -222,23 +240,152 @@ add_comes_from_constraint(Indicators, StateSet, comes_from(Out, Expr)) :- !,
     Constraint #==> (OutVar #= 1).
 add_comes_from_constraint(_, _, _).
 
+constrained_indicators_for_tasks(Tasks, Indicators) :-
+    tasks_to_indicators(Tasks, Indicators, StateSet),
+    maplist(add_past_dep_constraints(Indicators, StateSet), Tasks),
+    maplist(add_future_dep_constraints(Indicators, StateSet), Tasks),
+    maplist(add_comes_from_constraint(Indicators, StateSet), Tasks),
+    add_loop_progress_constraints(Indicators, Tasks).
+
 placed_in_past(Indicators, Task) :-
     task_output(Task, State),
     get_assoc(State, Indicators, Var),
     Var =:= 1.
 
-loop_invariants(Tasks, Past, Future) :-
-    tasks_to_indicators(Tasks, Indicators, StateSet),
-    maplist(add_past_dep_constraints(Indicators, StateSet), Tasks),
-    maplist(add_future_dep_constraints(Indicators, StateSet), Tasks),
-    maplist(add_comes_from_constraint(Indicators, StateSet), Tasks),
-    add_loop_progress_constraints(Indicators, Tasks),
-    assoc_to_values(Indicators, AllVars),
-    labeling([ffc], AllVars),
+read_indicators(Indicators, Tasks, Past, Future) :-
     partition(placed_in_past(Indicators), Tasks, Past, Future).
 
+loop_invariant(Tasks, Past, Future) :-
+    constrained_indicators_for_tasks(Tasks, Indicators),
+    assoc_to_values(Indicators, AllVars),
+    labeling([ffc], AllVars),
+    read_indicators(Indicators, Tasks, Past, Future).
+
+task_lists_to_fusion_vars(TaskLists, Computed, Uncomputed) :-
+    % Will need to be more sophisticated to allow for consts
+    extract_base_states(TaskLists, Ops),
+    states_regions_set(Ops, RegSet),
+    length(TaskLists, N),
+    assoc_with_domain(RegSet, 0, N, Uncomputed),
+    ComputedBound is N - 1,
+    assoc_with_domain(RegSet, -1, ComputedBound, Computed).
+
+build_integer_constraint(ge, Delta, Var, N, Constraint) :-
+    Constraint = (Var #>= (N + Delta)).
+build_integer_constraint(le, Delta, Var, N, Constraint) :-
+    Constraint = (Var #=< (N + Delta)).
+
+regions_for_fusion_use(Term, Acc, Out) :-
+    base_state(Term) -> (state_region(Term, State),
+                         ord_add_element(Acc, State, Out));
+    (Term = any(States)) -> (regions_for_fusion_use(States, [], Sublist),
+                             ord_add_element(Acc, Sublist, Out));
+    is_list(Term) -> foldl(regions_for_fusion_use, Term, Acc, Out);
+    compound(Term) -> (compound_name_arguments(Term, _, Args),
+                       foldl(regions_for_fusion_use, Args, Acc, Out));
+    Out = Acc.
+regions_for_fusion_use(Term, Out) :- regions_for_fusion_use(Term, [], Out).
+
+build_base_fusion_use_constraint_(Vars, Op, Delta, N, Region, Constraint) :-
+    get_assoc(Region, Vars, Var),
+    build_integer_constraint(Op, Delta, Var, N, Constraint).
+
+build_base_fusion_use_constraint(Vars, Op, Delta, N, [Region], Constraint) :-
+    (is_list(Region)) ->
+        build_any_fusion_use_constraint(Vars, Op, Delta, N, Region, Constraint);
+    (build_base_fusion_use_constraint_(Vars, Op, Delta, N, Region, Constraint)).
+
+build_base_fusion_use_constraint(Vars, Op, Delta, N, [Region|[Next|Rest]], Constraint) :-
+    (is_list(Region) ->
+         build_any_fusion_use_constraint(Vars, Op, Delta, N, Region, NewConstr);
+     build_base_fusion_use_constraint_(Vars, Op, Delta, N, Region, NewConstr)),
+    build_base_fusion_use_constraint(Vars, Op, Delta, N, [Next|Rest], SubConstr),
+    Constraint = (NewConstr #/\ SubConstr).
+
+build_any_fusion_use_constraint(Vars, Op, Delta, N, [Region], Constraint) :-
+    build_base_fusion_use_constraint_(Vars, Op, Delta, N, Region, Constraint).
+
+build_any_fusion_use_constraint(Vars, Op, Delta, N, [Region|[Next|Rest]], Constraint) :-
+    build_base_fusion_use_constraint_(Vars, Op, Delta, N, Region, NewConstr),
+    build_any_fusion_use_constraint(Vars, Op, Delta, N, [Next|Rest], SubConstr),
+    Constraint = (NewConstr #\/ SubConstr).
+
+add_fusion_use_constraints_(Indicators, Computed, Uncomputed, N, Task) :-
+    task_split(Task, Input, Output),
+    get_assoc(Output, Indicators, OutVar),
+    regions_for_fusion_use(Input, Regions),
+
+    build_base_fusion_use_constraint(Computed, ge, -1, N, Regions, ComputedConstr),
+    (OutVar #= 1) #==> ComputedConstr,
+
+    build_base_fusion_use_constraint(Uncomputed, le, 1, N, Regions, UncomputedConstr),
+    (OutVar #= 0) #==> UncomputedConstr.
+
+add_fusion_use_constraints([], _, _, _, []).
+add_fusion_use_constraints([Indicators|MoreIndicators], Computed, Uncomputed,
+                           N, [TaskList|TaskLists]) :-
+    maplist(add_fusion_use_constraints_(Indicators, Computed, Uncomputed, N), TaskList),
+    NewN is N + 1,
+    add_fusion_use_constraints(MoreIndicators, Computed, Uncomputed, NewN, TaskLists).
+
+add_fusion_use_constraints(IndicatorList, Computed, Uncomputed, TaskLists) :-
+    add_fusion_use_constraints(IndicatorList, Computed, Uncomputed, 0, TaskLists).
+
+build_fusion_entailment_constraint(Type, Indicators, [Output], Constraint) :-
+    get_assoc(Output, Indicators, Var),
+    Constraint = (Var #= Type).
+build_fusion_entailment_constraint(Type, Indicators, [Output|[Next|Rest]], Constraint) :-
+    get_assoc(Output, Indicators, Var),
+    build_fusion_entailment_constraint(Type, Indicators, [Next|Rest], SubConstraint),
+    Constraint = ((Var #= Type) #/\ SubConstraint).
+
+add_fusion_entailment_constraints(Indicators, Computed, Uncomputed, N, Reg-Tasks) :-
+    maplist(task_output, Tasks, Outputs),
+    get_assoc(Reg, Computed, ComputedVar),
+    get_assoc(Reg, Uncomputed, UncomputedVar),
+
+    build_fusion_entailment_constraint(1, Indicators, Outputs, ComputedConstr),
+    ((ComputedVar #>= N) #==> ComputedConstr),
+
+    build_fusion_entailment_constraint(0, Indicators, Outputs, UncomputedConstr),
+    ((UncomputedVar #=< N) #==> UncomputedConstr).
+
+add_fusion_entailment_constraints([], _, _, _, []).
+add_fusion_entailment_constraints([Indicators|MoreIndicators], Computed, Uncomputed,
+                                  N, [TaskList|TaskLists]) :-
+    tasks_grouped_by_region(TaskList, RegionTasks),
+    maplist(add_fusion_entailment_constraints(Indicators, Computed, Uncomputed, N), RegionTasks),
+    NewN is N + 1,
+    add_fusion_entailment_constraints(MoreIndicators, Computed, Uncomputed, NewN, TaskLists).
+
+add_fusion_entailment_constraints(IndicatorList, Computed, Uncomputed, TaskLists) :-
+    add_fusion_entailment_constraints(IndicatorList, Computed, Uncomputed, 0, TaskLists).
+
+fusion_constrained_system_for_tasks(TaskLists, System) :-
+    maplist(constrained_indicators_for_tasks, TaskLists, IndicatorList),
+    task_lists_to_fusion_vars(TaskLists, Computed, Uncomputed),
+    add_fusion_use_constraints(IndicatorList, Computed, Uncomputed, TaskLists),
+    add_fusion_entailment_constraints(IndicatorList, Computed, Uncomputed, TaskLists),
+    System = system{tasks:TaskLists, indicators:IndicatorList,
+                    computed:Computed, uncomputed:Uncomputed}.
+
+fused_invariant_for_system(System, Pasts, Futures) :-
+    system{tasks:TaskLists, indicators:IndicatorList,
+           computed:_, uncomputed:_} = System,
+    maplist(assoc_to_values, IndicatorList, TaskIndicators),
+    flatten(TaskIndicators, AllVars),
+    labeling([ffc], AllVars),
+    maplist(read_indicators, IndicatorList, TaskLists, Pasts, Futures).
+
+fused_invariant(TaskLists, Pasts, Futures) :-
+    fusion_constrained_system_for_tasks(TaskLists, System),
+    fused_invariant_for_system(System, Pasts, Futures).
+
+loop_invariant2(TaskList, Past, Future) :-
+    fused_invariant([TaskList], [Past], [Future]).
+
 cholesky(Past, Future) :-
-    loop_invariants(
+    loop_invariant2(
         [op_eq(tilde(l_tl), chol(hat(l_tl))),
 
          eq(tilde(l_bl), trsm(tilde(l_tl), hat(l_bl))),
@@ -252,4 +399,21 @@ cholesky(Past, Future) :-
 trinv(Past, Future) :-
     trinv_tasks(ltl,      ltl,
                 lbl, lbr, lbl, lbr, Tasks),
-    loop_invariants(Tasks, Past, Future).
+    loop_invariant2(Tasks, Past, Future).
+
+fusion_test1(Pasts, Futures) :-
+    cholesky_tasks(ltl,      ltl,
+                   lbl, lbr, lbl, lbr, CholTasks),
+    trinv_tasks(ltl,      ltl,
+                lbl, lbr, lbl, lbr, InvTasks),
+    fused_invariant([CholTasks, InvTasks], Pasts, Futures).
+
+symm_inv(Pasts, Futures) :-
+    format("CHOL + TrInv + TrTrMM (symmetric inverse):~n"),
+    cholesky_tasks(ltl,      ltl,
+                 lbl, lbr, lbl, lbr, CholTasks),
+    trinv_tasks(ltl,      ltl,
+                lbl, lbr, lbl, lbr, InvTasks),
+    l_transpose_l_times_l_tasks(ltl,
+                              lbl, lbr, MulTasks),
+    fused_invariant([CholTasks, InvTasks, MulTasks], Pasts, Futures).
