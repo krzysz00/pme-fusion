@@ -1,7 +1,24 @@
+/*
+ * Copyright ⓒ 2018 Krzysztof Drewniak
+ *
+ * This file is part of pme-fusion.
+
+ * pme-fusion is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+
+ * pme-fusion is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+
+ * You should have received a copy of the GNU General Public License
+ * along with pme-fusion. If not, see <http://www.gnu.org/licenses/>.
+ */
 :- use_module(library(assoc)).
 :- use_module(library(clpfd)).
-meta_predicate exists(1, +, -), exists_one(1, +), exists_one(2, +, +),
-               maplist2(2, +, +), maplist2_(2, +, +).
+meta_predicate exists(1, +, -), exists_one(1, +), exists_one(2, +, +).
 
 exists(_, [], _) :- fail.
 exists(P, [H|T], Witness) :-
@@ -17,14 +34,6 @@ exists_one(_, [], _) :- fail.
 exists_one(P, [H|T], L2) :-
     (exists_one(call(P, H), L2), !);
     exists_one(P, T, L2).
-
-maplist2(Pred, L1, L2) :-
-    maplist2_(L1, L2, Pred).
-
-maplist2_([], _, _).
-maplist2_([H|T], L2, Pred) :-
-    maplist(call(Pred, H), L2),
-    maplist2_(T, L2, Pred).
 
 base_state(hat(X)) :- atom(X).
 base_state(during(X, N)) :- atom(X), integer(N).
@@ -240,11 +249,40 @@ add_comes_from_constraint(Indicators, StateSet, comes_from(Out, Expr)) :- !,
     Constraint #==> (OutVar #= 1).
 add_comes_from_constraint(_, _, _).
 
+build_base_const_constraint(Indicators, Region, Task, Constraint) :-
+    task_split(Task, Inputs, Output),
+    states_region_set(Inputs, Regions),
+    ord_memberchk(Region, Regions),
+    get_assoc(Output, Indicators, OutVar),
+    Constraint = (OutVar #= 1), !;
+    % Failure case
+    Constraint = 1.
+
+build_const_constraint(_, _, [], 1).
+build_const_constraint(Indicators, Region, [Task|Tasks], Constraint) :-
+    build_base_const_constraint(Indicators, Region, Task, NewConstraint),
+    build_const_constraint(Indicators, Region, Tasks, SubConstraint),
+    (SubConstraint \== 1 ->
+         (NewConstraint \== 1 ->
+              (Constraint = (NewConstraint #\/ SubConstraint));
+          Constraint = SubConstraint);
+    Constraint = NewConstraint).
+
+add_const_constraint(Indicators, TaskList, const(State)) :- !,
+    state_region(State, Region),
+    build_const_constraint(Indicators, Region, TaskList, Constraint),
+    (Constraint \== 1) ->
+        (get_assoc(const(State), Indicators, Var),
+         Constraint #<==> (Var #= 1));
+    true.
+add_const_constraint(_, _, _).
+
 constrained_indicators_for_tasks(Tasks, Indicators) :-
     tasks_to_indicators(Tasks, Indicators, StateSet),
     maplist(add_past_dep_constraints(Indicators, StateSet), Tasks),
     maplist(add_future_dep_constraints(Indicators, StateSet), Tasks),
     maplist(add_comes_from_constraint(Indicators, StateSet), Tasks),
+    maplist(add_const_constraint(Indicators, Tasks), Tasks),
     add_loop_progress_constraints(Indicators, Tasks).
 
 placed_in_past(Indicators, Task) :-
@@ -262,7 +300,6 @@ loop_invariant(Tasks, Past, Future) :-
     read_indicators(Indicators, Tasks, Past, Future).
 
 task_lists_to_fusion_vars(TaskLists, Computed, Uncomputed) :-
-    % Will need to be more sophisticated to allow for consts
     extract_base_states(TaskLists, Ops),
     states_regions_set(Ops, RegSet),
     length(TaskLists, N),
@@ -276,8 +313,8 @@ build_integer_constraint(le, Delta, Var, N, Constraint) :-
     Constraint = (Var #=< (N + Delta)).
 
 regions_for_fusion_use(Term, Acc, Out) :-
-    base_state(Term) -> (state_region(Term, State),
-                         ord_add_element(Acc, State, Out));
+    base_state(Term) -> (state_region(Term, Region),
+                         ord_add_element(Acc, Region, Out));
     (Term = any(States)) -> (regions_for_fusion_use(States, [], Sublist),
                              ord_add_element(Acc, Sublist, Out));
     is_list(Term) -> foldl(regions_for_fusion_use, Term, Acc, Out);
@@ -361,12 +398,45 @@ add_fusion_entailment_constraints([Indicators|MoreIndicators], Computed, Uncompu
 add_fusion_entailment_constraints(IndicatorList, Computed, Uncomputed, TaskLists) :-
     add_fusion_entailment_constraints(IndicatorList, Computed, Uncomputed, 0, TaskLists).
 
+find_present_regions(RegionSet, Term, Acc, NewSet) :-
+    base_state(Term) -> (state_region(Term, Region),
+                         ord_memberchk(Region, RegionSet) ->
+                             ord_add_element(Acc, Region, NewSet);
+                         NewSet = Acc);
+    is_list(Term) -> foldl(find_present_regions, Term, Acc, NewSet);
+    % any() is in this case
+    compound(Term) -> (compound_name_arguments(Term, _, Args),
+                       foldl(find_present_regions, Args, Acc, NewSet));
+    NewSet = Acc.
+find_present_regions(RegionSet, Term, NewRegionSet) :-
+    find_present_regions(RegionSet, Term, [], NewRegionSet).
+
+const_task_for_region(Region, const(hat(Region))).
+
+add_const_tasks(AllConstRegions, TaskList, NewTaskList) :-
+    find_present_regions(AllConstRegions, TaskList, RegionsForConst),
+    maplist(const_task_for_region, RegionsForConst, NewTasks),
+    append(NewTasks, TaskList, NewTaskList).
+
+add_const_tasks(TaskLists, NewTaskLists) :-
+    extract_base_states(TaskLists, AllStates),
+    states_regions_set(AllStates, AllRegions),
+    maplist(out_states_of, TaskLists, TaskOutputSets),
+    ord_union(TaskOutputSets, AllOutStates),
+    states_regions_set(AllOutStates, AllOutRegions),
+    ord_subtract(AllRegions, AllOutRegions, AllConstRegions),
+    (AllConstRegions \== []) ->
+        (format("INFO: treating the regions ~w as pure inputs~n", [AllConstRegions]),
+         maplist(add_const_tasks(AllConstRegions, TaskLists, NewTaskLists)));
+    (NewTaskLists = TaskLists).
+
 fusion_constrained_system_for_tasks(TaskLists, System) :-
-    maplist(constrained_indicators_for_tasks, TaskLists, IndicatorList),
-    task_lists_to_fusion_vars(TaskLists, Computed, Uncomputed),
-    add_fusion_use_constraints(IndicatorList, Computed, Uncomputed, TaskLists),
-    add_fusion_entailment_constraints(IndicatorList, Computed, Uncomputed, TaskLists),
-    System = system{tasks:TaskLists, indicators:IndicatorList,
+    add_const_tasks(TaskLists, FullTaskLists),
+    maplist(constrained_indicators_for_tasks, FullTaskLists, IndicatorList),
+    task_lists_to_fusion_vars(FullTaskLists, Computed, Uncomputed),
+    add_fusion_use_constraints(IndicatorList, Computed, Uncomputed, FullTaskLists),
+    add_fusion_entailment_constraints(IndicatorList, Computed, Uncomputed, FullTaskLists),
+    System = system{tasks:FullTaskLists, indicators:IndicatorList,
                     computed:Computed, uncomputed:Uncomputed}.
 
 fused_invariant_for_system(System, Pasts, Futures) :-

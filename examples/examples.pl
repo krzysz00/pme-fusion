@@ -66,7 +66,7 @@ true_dependency :-
 anti_dependency :-
     format("Anti-dependency check (Trmv + Trinv):~n"),
     trmv_l_tasks(yt, ltl,      xt,
-               yb, lbl, lbr, xb, MulTasks),
+                 yb, lbl, lbr, xb, MulTasks),
     trinv_tasks(ltl,      ltl,
                 lbl, lbr, lbl, lbr, InvTasks),
     test_task_lists([MulTasks, InvTasks], 6).
