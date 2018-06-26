@@ -17,13 +17,15 @@
  * along with pme-fusion. If not, see <http://www.gnu.org/licenses/>.
  */
 :- module(pme_fusion,
-          [make_region/5, region_with_tasks/3,
-           make_pme/2, make_pmes/2,
-           fused_invariants/1, loop_invariant/1,
-           print_invariant/1, print_invariants/1, print_invariants_sep/1,
-           gen_invariant/1, gen_invariants/1, gen_invariants_dedup/1,
-           test_task_list/2, test_task_lists/2, test_task_lists_dedup/2]).
-
+          [fusion_constrained_system_for_tasks/2,
+           fused_invariants_for_system/3,
+           fused_invariants/3, loop_invariant/3,
+           print_task/2,
+           print_task_list/2, print_task_lists/2,
+           solutions_print_helper/1,
+           gen_invariant/1, gen_invariants/1,
+           test_task_list/2, test_task_lists/2
+          ]).
 /** <module> Find fusable loop invariants from partitioned (matrix) expressions
 
 This module contains the main algorithm for and interface to
@@ -45,25 +47,28 @@ It should be noted that each operation being fused is specified as
 if it were the only operation being performed.
 
 # Usage
-The main interface to the API is gen_invariants/1 (and its
-relatives gen_invariant/1 and gen_invariants_dedup/1). These
-functions take a list of lists of tasks (with the exception of the
-convenience function gen_invariant/1, which strips the outer
-list). They find and print all fusable loop invariants for the
-series of operations specified by the task lists.
+The main interface to the API is gen_invariants/1 (and its relative
+gen_invariant/1). These functions take a list of lists of tasks or a
+list of tasks, respectively. They find and print all (fusable) loop
+invariants for the series of operations specified by the task lists.
 
-An alternate entry point is provided by make_pmes/2 and
-fused_invariants/1. make_pmes/2 transforms a list of task
-lists (like the input to gen_invariants/1) into a lists of lists
-of `region` objects which have not yet been made into concrete loop
-invariants. fused_invariants/1 takes such a list of list of
-regions and binds every region's `past` and `future` fields to
-values that create a series of fusable loop invariants. It will
-succeed multiple times, once per set of loop invariants. (and so, it
-can also be used to check an invariant for validity). A fully
-determined (with no free variables) list of regions can be printed
-with print_invariant/1 (and a list of those can be printed with
-print_invariants/1).
+An alternate interfare is provided by
+fusion_constrained_system_for_tasks/2 and
+fused_invariants_for_system/3.
+`fusion_constrained_system_for_tasks(Tasks, System)` returns a
+`system` dictionary (described in more detail below) that, among other
+things, includes the system of indicator variables and constraints
+that indicate what partitions of a task list into a `past` and a
+`future` are valid. The `system` value can be modified to enforce
+additional constraints before the search, which is performed by
+fused_invariants_for_system/3. That function takes a `system`
+dictionary and returns once for each valid split of the tasks that
+created it into `Pasts` (a list of list of tasks in each loop's
+invariant) and `Futures` (a list of lists tasks in each loop's
+remainder). These lists can be passed to printing functions like
+print_task_lists/2 or print_task_lists_sep/2 (which adds a newline
+after the lists, which is useful when mapping over the set of possible
+results) in order to present them.
 
 # Types and syntax
 We well specify the input format for our API in a bottom-up matter.
@@ -128,7 +133,7 @@ A `task` is one of the following:
     uncomputed while the other has been. This is useful in cases such
     as the LU factorization, where the tasks that generate `l_tl` also
     compute `u_tl`.
-  * const(BaseState) this is a task that is generally automatically
+  * const(BaseState) This is a task that is generally automatically
     created, which represents a region that is a pure input - that is,
     one that is not ever updated by the algorithm. The purpose of this
     tasks is to allow maintaining a consistent direction of iteration
@@ -137,37 +142,35 @@ A `task` is one of the following:
     restriction that they cannot be in the loop invariant unless one
     of the tasks that depends on them is.
 
-On input, each of the operations that is to be fused is represented
-as a list of tasks. Before the algorithms begins, these tasks are
-organized into `region`s, which group together the tasks that create
-output states in a given region, that is tasks with the same ID in
-their output state.
-The fields of a `region` areas
-  * id
-    The ID associated with that region.
-  * tasks
-    The list (though order is irrelevant) of all tasks associated
-    with the region. In a fully-formed region, `tasks` is the union
-    of the disjoint sets `past` and `future`
-  * past
-    The list of all tasks that are part of the loop invariant.
-  * future
-    The list of all tasks that are part of the remainder, that is,
-    that are not in the loop invariant
+The `system` dictionary returned by
+fusion_constrained_system_for_tasks/2 has the following four fields:
+  * tasks This contains the list of lists of tasks that generated the
+    system, with const tasks included
+  * indicators A list of `assoc` structures, one per loop. The keys to
+    these lists are the outputs of each task in that loop, while the
+    values are variables with `clpfd` constrains applied and domain
+    `0..1`. Having an indicator set to `1` indicates that the task
+    with the associated output is in the loop invariant, `0` indicates
+    it is in the remainder.
+  * computed An `assoc` where the keys are regions (not states) that
+    appear in the fusion problem with values whose domains are `-1..N
+    - 1` (where `N` is the number of loops being fused). The values
+    represent the index of the last loop in a fusion problem where the
+    associated region is fully computed. These variables are not
+    searched, but do participate in constraints.
+  * uncomputed Like `computed`, except that each variable represents
+    the index of the first loop where the associated region is
+    uncomputed, and the variables have domain `0..N`.
 
-Regions can be created by make_region/5 or
-region_with_tasks/3, which leaves the `past` and `future` fields
-bound to variables.
+It is safe to apply additional constraints to any of these variables before calling
+fused_invariants_for_system/3.
 
 @author Krzysztof Drewniak
 @license GPLv3 or later
 */
-
 :- use_module(library(assoc)).
 :- use_module(library(clpfd)).
-
-meta_predicate exists(1, +, -), exists_one(1, +), exists_one(2, +, +),
-               maplist2(2, +, +), maplist2_(2, +, +).
+meta_predicate exists(1, +, -), exists_one(1, +), exists_one(2, +, +).
 
 exists(_, [], _) :- fail.
 exists(P, [H|T], Witness) :-
@@ -184,80 +187,47 @@ exists_one(P, [H|T], L2) :-
     (exists_one(call(P, H), L2), !);
     exists_one(P, T, L2).
 
-split_([], A, B, VarA, VarB) :- reverse(A, VarA), reverse(B, VarB).
-split_([H|T], A, B, VarA, VarB) :-
-    split_(T, [H|A], B, VarA, VarB);
-    split_(T, A, [H|B], VarA, VarB).
+base_state(hat(X)) :- atom(X).
+base_state(during(X, N)) :- atom(X), integer(N).
+base_state(during(X, N, V)) :- atom(X), integer(N), atom(V).
+base_state(tilde(X)) :- atom(X).
 
-split(List, A, B) :- split_(List, [], [], A, B).
+state(any(States)) :- maplist(base_state, States), !.
+state(X) :- base_state(X).
 
-maplist2(Pred, L1, L2) :-
-    maplist2_(L1, L2, Pred).
+state_region(any(States), Y) :-
+    maplist(state_region, States, StateRegionsWithDups),
+    sort(StateRegionsWithDups, StateRegions),
+    member(Y, StateRegions).
+state_region(hat(X), X).
+state_region(during(X, _), X).
+state_region(during(X, _, _), X).
+state_region(tilde(X), X).
 
-maplist2_([], _, _).
-maplist2_([H|T], L2, Pred) :-
-    maplist(call(Pred, H), L2),
-    maplist2_(T, L2, Pred).
+states_regions_set([], Acc, Acc).
+states_regions_set([any(States)|Tl], Acc, Out) :- !,
+    maplist(state_region, States, StateRegionsWithDups),
+    sort(StateRegionsWithDups, StateRegions),
+    ord_union(StateRegions, Acc, NewAcc),
+    states_regions_set(Tl, NewAcc, Out).
+states_regions_set([State|Tl], Acc, Out) :-
+    state_region(State, StateReg),
+    ord_add_element(Acc, StateReg, NewAcc),
+    states_regions_set(Tl, NewAcc, Out).
 
-base_operand(hat(X)) :- atom(X).
-base_operand(during(X, N)) :- atom(X), integer(N).
-base_operand(during(X, N, V)) :- atom(X), integer(N), atom(V).
-base_operand(tilde(X)) :- atom(X).
+states_regions_set(States, Out) :-
+    states_regions_set(States, [], Out).
 
-operand(any(Ops)) :- maplist(base_operand, Ops), !.
-operand(X) :- base_operand(X).
+productive_task(eq(O, _)) :- base_state(O).
+productive_task(op_eq(O, _)) :- base_state(O).
 
-operand_region(any(Ops), Y) :-
-    maplist(operand_region, Ops, OpRegionsWithDups),
-    sort(OpRegionsWithDups, OpRegions),
-    member(Y, OpRegions).
-operand_region(hat(X), X).
-operand_region(during(X, _), X).
-operand_region(during(X, _, _), X).
-operand_region(tilde(X), X).
-
-operands_regions_set([], Acc, Out) :- Acc = Out.
-operands_regions_set([any(Ops)|Tl], Acc, Out) :- !,
-    maplist(operand_region, Ops, OpRegionsWithDups),
-    sort(OpRegionsWithDups, OpRegions),
-    ord_union(OpRegions, Acc, NewAcc),
-    operands_regions_set(Tl, NewAcc, Out).
-operands_regions_set([Op|Tl], Acc, Out) :-
-    operand_region(Op, OpReg),
-    ord_add_element(Acc, OpReg, NewAcc),
-    operands_regions_set(Tl, NewAcc, Out).
-
-operands_regions_set(Ops, Out) :- operands_regions_set(Ops, [], Out).
-
-productive_task(eq(O, _)) :- base_operand(O).
-productive_task(op_eq(O, _)) :- base_operand(O).
-
-task(comes_from(O, _)) :- base_operand(O).
-task(const(O)) :- base_operand(O).
+task(comes_from(O, _)) :- base_state(O).
+task(const(O)) :- base_state(O).
 task(X) :- productive_task(X).
 
-extract_operands([], Accum, Out) :- Out = Accum, !.
-
-extract_operands([Term|Terms], Accum, Out) :-
-    extract_term_operands(Term, TermOps),
-    append(TermOps, Accum, NewAccum),
-    extract_operands(Terms, NewAccum, Out), !.
-
-extract_operands(Term, Accum, Out) :-
-    extract_term_operands(Term, TermOps),
-    append(TermOps, Accum, Out).
-
-extract_term_operands(Term, Out) :-
-    operand(Term) -> Out = [Term];
-    compound(Term) -> (compound_name_arguments(Term, _, Args),
-                       extract_operands(Args, [], Out));
-    Out = [].
-
-extract_operands(Term, Out) :- extract_operands(Term, [], Out).
-
-task_split(op_eq(O, I), In, Out) :- extract_operands(I, InOps), In = InOps, Out = O.
-task_split(eq(O, I), In, Out) :- extract_operands(I, InOps), In = InOps, Out = O.
-task_split(comes_from(O, I), In, Out) :- extract_operands(I, InOps), In = InOps, Out = O.
+task_split(op_eq(O, I), In, Out) :- extract_states(I, InOps), In = InOps, Out = O.
+task_split(eq(O, I), In, Out) :- extract_states(I, InOps), In = InOps, Out = O.
+task_split(comes_from(O, I), In, Out) :- extract_states(I, InOps), In = InOps, Out = O.
 task_split(const(O), In, Out) :- Out = O, In = [].
 
 task_output(op_eq(O, _), O) :- !.
@@ -276,522 +246,475 @@ task_input(Task) :-
     format("ERROR: ~w is not a task in task list~n", [Task]),
     fail.
 
-task_output_region(Task, Out) :-
-    task_output(Task, O),
-    (base_operand(O) -> operand_region(O, Out);
-     (format("ERROR, Invalid output ~w in task ~w~n", [O, Task]), fail)).
+task_output_region(Task, Region) :-
+    task_output(Task, Output),
+    state_region(Output, Region).
 
-collect_extra_input_regions(_OutRegions, [], Acc, ExtraInRegions) :- !,
-    ExtraInRegions = Acc.
-collect_extra_input_regions(OutRegions, [Term|Terms], Acc, ExtraInRegions) :- !,
-    collect_extra_input_regions(OutRegions, Term, [], InRegs),
-    ord_union(Acc, InRegs, NewAcc),
-    collect_extra_input_regions(OutRegions, Terms, NewAcc, ExtraInRegions).
-
-collect_extra_input_regions(OutRegions, Term, Acc, ExtraInRegions) :-
-    base_operand(Term) -> (operand_region(Term, Reg),
-                         (ord_memberchk(Reg, OutRegions), ExtraInRegions = Acc, !;
-                          format("INFO: Region ~w (from ~w) doesn't appear as an output anywhere. Pure input analysis is being applied.~n", [Reg, Term]),
-                          ord_add_element(Acc, Reg, ExtraInRegions)));
-    any(Ops) = Term -> (collect_extra_input_regions(OutRegions, Ops, [], SubAcc),
-                        ord_union(Acc, SubAcc, ExtraInRegions));
+extract_states(Term, Acc, Out) :-
+    state(Term) -> ord_add_element(Acc, Term, Out);
+    is_list(Term) -> foldl(extract_states, Term, Acc, Out);
     compound(Term) -> (compound_name_arguments(Term, _, Args),
-                       collect_extra_input_regions(OutRegions, Args, [], SubAcc),
-                       ord_union(Acc, SubAcc, ExtraInRegions));
-    ord_memberchk(Term, OutRegions) -> (format("WARNING: ~w appears an input without an associated state~n", [Term]),
-                                        ExtraInRegions = Acc);
-    ExtraInRegions = Acc.
+                       foldl(extract_states, Args, Acc, Out));
+    Out = Acc.
 
-find_regions_as_constants(Regions, Parent, Term) :-
-    (operand(Term), !);
-    (atom(Term), ord_memberchk(Term, Regions),
-     format("WARNING: The region ~w appears without a state specifier in ~w~n", [Term, Parent]), !);
-    (is_list(Term), maplist(find_regions_as_constants(Regions, Term), Term), !);
-    (compound(Term), compound_name_arguments(Term, Name, Args),
-     (((Name == any, length(Args, ArgLen), ArgLen =\= 1) ->
-           format("WARNING: Failure to put any argument in a list in ~w~n", [Term]); true),
-      maplist(find_regions_as_constants(Regions, Term), Args), !));
-    true.
-find_regions_as_constants(Regions, Term) :-
-    find_regions_as_constants(Regions, Term, Term).
+extract_states(Term, Out) :- extract_states(Term, [], Out).
 
+extract_base_states(Term, Acc, Out) :-
+    base_state(Term) -> ord_add_element(Acc, Term, Out);
+    is_list(Term) -> foldl(extract_base_states, Term, Acc, Out);
+    compound(Term) -> (compound_name_arguments(Term, _, Args),
+                       foldl(extract_base_states, Args, Acc, Out));
+    Out = Acc.
 
-collect_extra_input_regions(OutRegions, Term, ExtraInRegions) :-
-    collect_extra_input_regions(OutRegions, Term, [], ExtraInRegions).
-
-has_op(List) :-
-    exists_one(=(op_eq(_, _)), List).
-
-%! make_region(++Id:atom, +Tasks:task_list, ?Past:task_list, ?Future:task_list, -Reg:region) is semidet.
-% The lowest-level constructor for a `region`.
-%
-% Fails if `Id` is not an atom or if `Tasks` are not all tasks. Does
-% **not** enforce that `Tasks` is a union of `past` and `future`, or
-% that all of the tasks target the same `Id`.
-make_region(Id, Tasks, Past, Future, Reg) :-
-    atom(Id),
-    ((maplist(task, Tasks), !);
-     (format("ERROR: Invalid output for assignment in region ~w (tasks ~w)~n", [Id, Tasks]), fail)),
-    Reg = region{id:Id, tasks:Tasks, past:Past, future:Future}.
-
-%! region_with_tasks(++Id:atom, +Tasks:task_list, -Reg:region) is semidet.
-%
-% Convenience wrapper that creates the region `Reg` with the given
-% `Id` and `Tasks`.
-%
-% @see make_region/5
-region_with_tasks(Id, Tasks, Reg) :-
-    make_region(Id, Tasks, _Past, _Future, Reg).
-
-region_with_tasks(Id-Tasks, Reg) :- region_with_tasks(Id, Tasks, Reg).
+extract_base_states(Term, Out) :- extract_states(Term, [], Out).
 
 tasks_grouped_by_region(TaskList, IdTasks) :-
     map_list_to_pairs(task_output_region, TaskList, Pairs),
     keysort(Pairs, Sorted),
     group_pairs_by_key(Sorted, IdTasks).
 
-add_empty_regions_([], IdTasks, NewIdTasks) :- IdTasks = NewIdTasks.
-add_empty_regions_([Id|Ids], IdTasks, NewIdTasks) :-
-    (exists_one(=(Id-_), IdTasks), !,
-     add_empty_regions_(Ids, IdTasks, NewIdTasks));
-    add_empty_regions_(Ids, [Id-[]|IdTasks], NewIdTasks).
+pair_with_domain(Lower, Upper, Key, Out) :-
+    Var in Lower..Upper,
+    Out = Key-Var.
 
-add_empty_regions(Ids, IdTasks, NewIdTasks) :-
-    maplist(add_empty_regions_(Ids), IdTasks, NewIdTasks).
+assoc_with_domain(OrdKeys, Lower, Upper, Assoc) :-
+    maplist(pair_with_domain(Lower, Upper), OrdKeys, Entries),
+    ord_list_to_assoc(Entries, Assoc).
 
-to_const_task(Symbol, Region) :- Region = Symbol-[const(hat(Symbol))].
+preceeds_flip(X, Y) :- preceeds(Y, X).
 
-add_const_tasks([], [], Acc, NewRegs) :- reverse(Acc, NewRegs).
-add_const_tasks([Loop|Loops], [Extras|MoreExtras], Acc, NewRegs) :-
-    maplist(to_const_task, Extras, ExtraRegions),
-    append(ExtraRegions, Loop, NewLoop),
-    add_const_tasks(Loops, MoreExtras, [NewLoop|Acc], NewRegs).
+preceeds(hat(X), during(X, _)).
+preceeds(hat(X), during(X, _, _)).
+preceeds(hat(X), tilde(X)).
+preceeds(during(X, M), during(X, N)) :- M < N.
+preceeds(during(X, M, _), during(X, N)) :- M < N.
+preceeds(during(X, M), during(X, N, _)) :- M < N.
+preceeds(during(X, M, _), during(X, N, _)) :- M < N.
+preceeds(during(X, _), tilde(X)).
+preceeds(during(X, _, _), tilde(X)).
 
-add_const_tasks(IdTasks, ExtraRegions, NewIdTasks) :-
-    add_const_tasks(IdTasks, ExtraRegions, [], NewIdTasks).
+required_for_past_input(Input, Input) :- !.
+required_for_past_input(State, Input) :- preceeds(State, Input).
 
-%! make_pme(+TaskList:task_list, -Regions:region_list) is semidet.
-%
-% Convenience wrapper around make_pmes/2 for the case when there
-% is one operation.
-make_pme(TaskList, Regions) :-
-    make_pmes([TaskList], [Regions]).
+required_for_past_input_flip(Input, State) :- required_for_past_input(State, Input).
 
-%! make_pmes(+TaskLists:task_list_list, -PMEs:region_list_list) is semidet.
-%
-% Transforms the list of lists of tasks (one task-list per operation
-% being fused) into a list of list of regions, that is, a list of
-% partitioned matrix expressions (PMEs). This transformation will
-% create all necessary region objects, including the empty ones
-% required to ensure loop fusion.
-%
-% Will fail if anything in `TaskLists` is not a valid task, and will
-% warn for:
-%   * Regions that are tagged with a state in an input but never used
-%     as an output
-%   * Regions that appear without state specifiers
-%
-% The output of this function is suitable as input for
-% fused_invariants/1's search mode.
-make_pmes(TaskLists, PMEs) :-
-    maplist(tasks_grouped_by_region, TaskLists, IdTasks),
-    maplist(pairs_keys, IdTasks, RegionsByLoop), % Sorted by the gather
-    ord_union(RegionsByLoop, AllOutRegions),
-    maplist(maplist(task_input), TaskLists, TaskInputs),
-    % Find where we need a const() task in any loop
-    maplist(collect_extra_input_regions(AllOutRegions), TaskInputs, ExtraInRegions),
-    add_const_tasks(IdTasks, ExtraInRegions, IdTasksWithConst),
-    ord_union(ExtraInRegions, FlatExtraInRegions),
-    ord_union(AllOutRegions, FlatExtraInRegions, AllRegions),
-    find_regions_as_constants(AllRegions, TaskInputs),
-    add_empty_regions(AllRegions, IdTasksWithConst, FullIdTasks),
-    maplist(maplist(region_with_tasks), FullIdTasks, PMEs).
+required_for_future_input(State, Input) :- preceeds(Input, State).
 
-is_region(region{id:_, tasks:Tasks, past:Past, future:Future}) :-
-    split(Tasks, Past, Future).
+required_for_future_input_flip(Input, State) :- required_for_future_input(State, Input).
 
-is_computed(Region) :-
-    (Region.past = Region.tasks),
-    (Region.future = []),
-    !.
+out_states_of(Tasks, StateSet) :-
+    maplist(task_output, Tasks, States),
+    sort(States, StateSet),
+    length(States, NRaw),
+    length(StateSet, N),
+    (NRaw =:= N, !; format("Error: multiple tasks for one memory state~n"), fail).
 
-is_uncomputed(Region) :-
-    (Region.past = []),
-    (Region.future = Region.tasks),
-    !.
+tasks_to_indicators(Tasks, Indicators, StateSet) :-
+    out_states_of(Tasks, StateSet),
+    assoc_with_domain(StateSet, 0, 1, Indicators).
 
-is_partial(Region) :-
-    (Region.past \= []),
-    (Region.future \= []),
-    !.
+states_needed_for_past_input(StateSet, InState, List) :-
+    include(required_for_past_input_flip(InState), StateSet, List).
 
-is_empty(Region) :-
-    (Region.tasks = []), !.
+states_needed_for_future_input(StateSet, InState, List) :-
+    include(required_for_future_input_flip(InState), StateSet, List).
 
+build_base_dep_constraint_(_Type, _Indicators, [], 1) :- !.
+build_base_dep_constraint_(Type, Indicators, [State], Constraint) :- !,
+    get_assoc(State, Indicators, Var),
+    Constraint = (Var #= Type).
 
-get_assoc_default(Key, Assoc, Value, Default) :-
-    (get_assoc(Key, Assoc, Value), !);
-    (Value = Default, !).
+build_base_dep_constraint_(Type, Indicators, [State|[Next|Tail]], Constraint) :- !,
+    get_assoc(State, Indicators, Var),
+    build_base_dep_constraint_(Type, Indicators, [Next|Tail], SubConstr),
+    Constraint = ((Var #= Type) #/\ SubConstr).
 
-transpose_invariants_([], Accum, Out) :- Out = Accum.
-transpose_invariants_([Region|Others], Accum, Out) :-
-    Id = Region.id,
-    get_assoc_default(Id, Accum, Past, []),
-    put_assoc(Id, Accum, [Region|Past], NewAccum),
-    transpose_invariants_(Others, NewAccum, Out).
+build_base_dep_constraint(1, Indicators, StateSet, Input, Constraint) :- !,
+    states_needed_for_past_input(StateSet, Input, RelevantStates),
+    build_base_dep_constraint_(1, Indicators, RelevantStates, Constraint).
 
-transpose_invariants([], StripAccum, Out) :-
-    map_assoc(reverse, StripAccum, Out), !.
-transpose_invariants([Invariant|Future], StripAccum, Out) :-
-    transpose_invariants_(Invariant, StripAccum, NewAccum), !,
-    transpose_invariants(Future, NewAccum, Out).
+build_base_dep_constraint(0, Indicators, StateSet, Input, Constraint) :- !,
+    states_needed_for_future_input(StateSet, Input, RelevantStates),
+    build_base_dep_constraint_(0, Indicators, RelevantStates, Constraint).
 
-transpose_invariants(Invariants, Strips) :-
-    empty_assoc(Accumulator),
-    transpose_invariants(Invariants, Accumulator, Strips).
+build_any_dep_constraint(Type, Indicators, StateSet, [Input], Constraint) :- !,
+    % Yes, this preserves 1s, that's intentional
+    build_base_dep_constraint(Type, Indicators, StateSet, Input, Constraint).
 
-to_strip_length_var(Strip, Out) :-
-    length(Strip, Max),
-    Out in -1..Max, !.
+build_any_dep_constraint(Type, Indicators, StateSet, [Input|[Next|Inputs]], Constraint) :- !,
+    build_any_dep_constraint(Type, Indicators, StateSet, [Next|Inputs], SubConstraint),
+    build_base_dep_constraint(Type, Indicators, StateSet, Input, NewConstraint),
+    Constraint = (NewConstraint #\/ SubConstraint).
 
-to_strip_length_vars(Strips, Out) :-
-    map_assoc(to_strip_length_var, Strips, Out), !.
+add_dep_constraint(_Type, _Indicators, _OutTaskVar, _StateSet, any([])) :-
+    format("ERROR: Empty any input~n"), fail.
+add_dep_constraint(Type, Indicators, OutTaskVar, StateSet, any([State])) :-
+    add_dep_constraint(Type, Indicators, OutTaskVar, StateSet, State).
+add_dep_constraint(Type, Indicators, OutTaskVar, StateSet, any([State|[Next|Rest]])) :-
+    build_any_dep_constraint(Type, Indicators, StateSet, [State|[Next|Rest]], Constraint),
+    (OutTaskVar #= Type) #==> Constraint.
 
-last_computed_delta(AnyRegion, Delta) :-
-    is_computed(AnyRegion) -> (Delta = 1); (Delta = 0).
-first_uncomputed_delta(AnyRegion, Delta) :-
-    is_uncomputed(AnyRegion) -> (Delta = -1); (Delta = 0).
+add_dep_constraint(Type, Indicators, OutTaskVar, StateSet, InState) :- base_state(InState),
+    build_base_dep_constraint(Type, Indicators, StateSet, InState, Constraint),
+    ((Constraint \== 1) -> ((OutTaskVar #= Type) #==> Constraint); true).
 
-extract_empty_prefix([], AccumEmptys, Emptys, Uncomputed) :-
-    reverse(AccumEmptys, Emptys),
-    Uncomputed = [].
-extract_empty_prefix([Reg|Regs], AccumEmptys, Emptys, Uncomputed)  :-
-    is_empty(Reg) ->
-        extract_empty_prefix(Regs, [Reg|AccumEmptys], Emptys, Uncomputed);
-    (reverse(AccumEmptys, Emptys), Uncomputed = [Reg|Regs]).
+add_past_dep_constraints(Indicators, StateSet, Task) :-
+    task_split(Task, Inputs, Output),
+    get_assoc(Output, Indicators, OutVar),
+    maplist(add_dep_constraint(1, Indicators, OutVar, StateSet), Inputs).
 
-extract_empty_prefix(MaybeUncomp, Emptys, Uncomputed) :-
-    extract_empty_prefix(MaybeUncomp, [], Emptys, Uncomputed).
+add_future_dep_constraints(Indicators, StateSet, Task) :-
+    task_split(Task, Inputs, Output),
+    get_assoc(Output, Indicators, OutVar),
+    maplist(add_dep_constraint(0, Indicators, OutVar, StateSet), Inputs).
 
+gather_operation_task_vars(_, [], Acc, Acc) :- !.
+gather_operation_task_vars(Indicators, [op_eq(Reg, _)|Tasks], Acc, Out) :- !,
+    get_assoc(Reg, Indicators, Var),
+    gather_operation_task_vars(Indicators, Tasks, [Var|Acc], Out).
+gather_operation_task_vars(Indicators, [_|Tasks], Acc, Out) :- !,
+    gather_operation_task_vars(Indicators, Tasks, Acc, Out).
 
-computable_order(Strip, LastComputeds, FirstUncomputeds) :-
-    append(Computed, [Any|EmptyAndUncomputed], Strip),
-    extract_empty_prefix(EmptyAndUncomputed, Empty, Uncomputed),
-    maplist(is_computed, Computed),
-    maplist(is_uncomputed, Uncomputed),
-    %% For independent iterations, replace next statement with
-    %% (is_computed(Any); is_uncomputed(Any))
-    is_region(Any),
-    % We'll have tried this for the case where a previous Any was computed
-    % This also gets rid of redundant checks for empty regions
-    \+ (is_uncomputed(Any), Computed \== []),
+gather_operation_task_vars(Indicators, Tasks, Vars) :-
+    gather_operation_task_vars(Indicators, Tasks, [], Vars).
 
-    maplist(is_region, Empty),
-    length(Empty, LenEmpty),
-    NLikeAny is LenEmpty + 1,
+add_loop_progress_constraints(Indicators, Tasks) :-
+    gather_operation_task_vars(Indicators, Tasks, Vars),
+    length(Vars, NOps),
+    sum(Vars, #\=, 0),
+    sum(Vars, #\=, NOps).
 
-    (Id = Any.id),
-    get_assoc(Id, LastComputeds, LastComputedConstraint),
-    length(Computed, LenComputed),
-    last_computed_delta(Any, LastComputedDelta),
-    LastComputed is (LenComputed - 1) + LastComputedDelta,
-    LastComputedWithEmpty is (LenComputed - 1) + (LastComputedDelta * NLikeAny),
-    LastComputedConstraint in (LastComputed..LastComputedWithEmpty),
+build_comes_from_constraint_lhs(_Indicators, [], 1) :- !.
+build_comes_from_constraint_lhs(Indicators, [Input], Constraint) :- !,
+    get_assoc(Input, Indicators, Var),
+    Constraint = (Var #= 1).
+build_comes_from_constraint_lhs(Indicators, [Input|[Next|Rest]], Constraint) :- !,
+    get_assoc(Input, Indicators, Var),
+    build_comes_from_constraint_lhs(Indicators, [Next|Rest], SubConstr),
+    Constraint = ((Var #= 1) #/\ SubConstr).
 
-    get_assoc(Id, FirstUncomputeds, FirstUncomputedConstraint),
-    length(Uncomputed, LenUncomputed),
-    length(Strip, LenStrip),
-    first_uncomputed_delta(Any, FirstUncomputedDelta),
-    FirstUncomputed is LenStrip - (LenUncomputed + LenEmpty) + FirstUncomputedDelta,
-    FirstUncomputedWithEmpty is LenStrip - LenUncomputed + FirstUncomputedDelta,
-    FirstUncomputedConstraint in (FirstUncomputed..FirstUncomputedWithEmpty).
+add_comes_from_constraint(Indicators, StateSet, comes_from(Out, Expr)) :- !,
+    get_assoc(Out, Indicators, OutVar),
+    extract_states(Expr, InputSet),
+    ord_intersection(StateSet, InputSet, RelevantInputs),
+    build_comes_from_constraint_lhs(Indicators, RelevantInputs, Constraint),
+    Constraint #==> (OutVar #= 1).
+add_comes_from_constraint(_, _, _).
 
-partition_task_operands([], AccumIn, AccumOut, Inputs, Outputs) :-
-    Inputs = AccumIn, Outputs = AccumOut, !.
-partition_task_operands([Task|Tasks], AccumIn, AccumOut, Inputs, Outputs) :-
-    task_split(Task, TaskIn, TaskOut),
-    append(TaskIn, AccumIn, NewAccumIn),
-    NewAccumOut = [TaskOut|AccumOut],
-    partition_task_operands(Tasks, NewAccumIn, NewAccumOut, Inputs, Outputs).
+build_base_const_constraint(Indicators, Region, Task, Constraint) :-
+    task_split(Task, Inputs, Output),
+    states_regions_set(Inputs, Regions),
+    ord_memberchk(Region, Regions),
+    get_assoc(Output, Indicators, OutVar),
+    format("Task ~w has a const constraint for ~w~n", [Task, Region]), !,
+    Constraint = (OutVar #= 1);
+    % Failure case
+    Constraint = na.
 
-partition_task_operands(Tasks, Inputs, Outputs) :-
-    partition_task_operands(Tasks, [], [], Inputs, Outputs).
+build_const_constraint(_, _, [], na).
+build_const_constraint(Indicators, Region, [Task|Tasks], Constraint) :-
+    build_base_const_constraint(Indicators, Region, Task, NewConstraint),
+    build_const_constraint(Indicators, Region, Tasks, SubConstraint),
+    (SubConstraint \== na ->
+         (NewConstraint \== na ->
+              (write("Chaining\n"),
+               Constraint = (NewConstraint #\/ SubConstraint));
+          Constraint = SubConstraint);
+    Constraint = NewConstraint).
 
-collect_field_([], _, Accum, Ret) :- Ret = Accum, !.
-collect_field_([Region|T], Field, Accum, Ret) :-
-    append(Region.get(Field), Accum, NewAccum),
-    collect_field_(T, Field, NewAccum, Ret).
+add_const_constraint(Indicators, TaskList, const(State)) :- !,
+    state_region(State, Region),
+    build_const_constraint(Indicators, Region, TaskList, Constraint),
+    ((Constraint \== na) ->
+         (get_assoc(State, Indicators, Var),
+          (Var #= 1) #<==> Constraint);
+         true).
+add_const_constraint(_, _, _).
 
-collect_field(Regions, Field, Ret) :-
-    collect_field_(Regions, Field, [], Ret).
+constrained_indicators_for_tasks(Tasks, Indicators) :-
+    tasks_to_indicators(Tasks, Indicators, StateSet),
+    maplist(add_past_dep_constraints(Indicators, StateSet), Tasks),
+    maplist(add_future_dep_constraints(Indicators, StateSet), Tasks),
+    maplist(add_comes_from_constraint(Indicators, StateSet), Tasks),
+    maplist(add_const_constraint(Indicators, Tasks), Tasks),
+    add_loop_progress_constraints(Indicators, Tasks).
 
-regions_to_operands(Regions, PastIns, PastOuts, FutureIns, FutureOuts) :-
-    collect_field(Regions, past, Pasts),
-    collect_field(Regions, future, Futures),
-    partition_task_operands(Pasts, PastIns, PastOuts),
-    partition_task_operands(Futures, FutureIns, FutureOuts).
+placed_in_past(Indicators, Task) :-
+    task_output(Task, State),
+    get_assoc(State, Indicators, Var),
+    Var =:= 1.
 
+read_indicators(Indicators, Tasks, Past, Future) :-
+    partition(placed_in_past(Indicators), Tasks, Past, Future).
 
-constrain_from_past_input(LoopNo, LastComputeds, Op) :-
-    operand_region(Op, Region),
-    get_assoc(Region, LastComputeds, Constraint),
-    Constraint #>= LoopNo - 1.
+task_lists_to_fusion_vars(TaskLists, Computed, Uncomputed) :-
+    extract_base_states(TaskLists, Ops),
+    states_regions_set(Ops, RegSet),
+    length(TaskLists, N),
+    assoc_with_domain(RegSet, 0, N, Uncomputed),
+    ComputedBound is N - 1,
+    assoc_with_domain(RegSet, -1, ComputedBound, Computed).
 
-constrain_from_future_input(LoopNo, FirstUncomputeds, Op) :-
-    operand_region(Op, Region),
-    get_assoc(Region, FirstUncomputeds, Constraint),
-    Constraint #=< LoopNo + 1.
+build_integer_constraint(ge, Delta, Var, N, Constraint) :- !,
+    Constraint = (Var #>= (N + Delta)).
+build_integer_constraint(le, Delta, Var, N, Constraint) :- !,
+    Constraint = (Var #=< (N + Delta)).
 
-fusion_dependency_check(_, [], _, _).
-fusion_dependency_check(N, [Region|Future], LastComputeds, FirstUncomputeds) :-
-    partition_task_operands(Region.past, PastIns, _),
-    partition_task_operands(Region.future, FutureIns, _),
-    maplist(constrain_from_past_input(N, LastComputeds), PastIns),
-    maplist(constrain_from_future_input(N, FirstUncomputeds), FutureIns), !,
+regions_for_fusion_use(Term, Acc, Out) :-
+    base_state(Term) -> (state_region(Term, Region),
+                         ord_add_element(Acc, Region, Out));
+    (Term = any(States)) -> (regions_for_fusion_use(States, [], Sublist),
+                             ord_add_element(Acc, Sublist, Out));
+    is_list(Term) -> foldl(regions_for_fusion_use, Term, Acc, Out);
+    compound(Term) -> (compound_name_arguments(Term, _, Args),
+                       foldl(regions_for_fusion_use, Args, Acc, Out));
+    Out = Acc.
+regions_for_fusion_use(Term, Out) :- regions_for_fusion_use(Term, [], Out).
+
+build_base_fusion_use_constraint_(Vars, Op, Delta, N, Region, Constraint) :- !,
+    get_assoc(Region, Vars, Var),
+    build_integer_constraint(Op, Delta, Var, N, Constraint).
+
+build_base_fusion_use_constraint(_, _, _, _, [], 1) :- !.
+build_base_fusion_use_constraint(Vars, Op, Delta, N, [Region], Constraint) :- !,
+    (is_list(Region)) ->
+        build_any_fusion_use_constraint(Vars, Op, Delta, N, Region, Constraint);
+    (build_base_fusion_use_constraint_(Vars, Op, Delta, N, Region, Constraint)), !.
+
+build_base_fusion_use_constraint(Vars, Op, Delta, N, [Region|[Next|Rest]], Constraint) :- !,
+    (is_list(Region) ->
+         build_any_fusion_use_constraint(Vars, Op, Delta, N, Region, NewConstr);
+     build_base_fusion_use_constraint_(Vars, Op, Delta, N, Region, NewConstr)), !,
+    build_base_fusion_use_constraint(Vars, Op, Delta, N, [Next|Rest], SubConstr),
+    Constraint = (NewConstr #/\ SubConstr).
+
+build_any_fusion_use_constraint(Vars, Op, Delta, N, [Region], Constraint) :- !,
+    build_base_fusion_use_constraint_(Vars, Op, Delta, N, Region, Constraint).
+
+build_any_fusion_use_constraint(Vars, Op, Delta, N, [Region|[Next|Rest]], Constraint) :- !,
+    build_base_fusion_use_constraint_(Vars, Op, Delta, N, Region, NewConstr),
+    build_any_fusion_use_constraint(Vars, Op, Delta, N, [Next|Rest], SubConstr),
+    Constraint = (NewConstr #\/ SubConstr).
+
+add_fusion_use_constraints_(Indicators, Computed, Uncomputed, N, Task) :-
+    task_split(Task, Input, Output),
+    get_assoc(Output, Indicators, OutVar),
+    regions_for_fusion_use(Input, Regions), !,
+
+    build_base_fusion_use_constraint(Computed, ge, -1, N, Regions, ComputedConstr),
+    (OutVar #= 1) #==> ComputedConstr,
+
+    build_base_fusion_use_constraint(Uncomputed, le, 1, N, Regions, UncomputedConstr),
+    (OutVar #= 0) #==> UncomputedConstr.
+
+add_fusion_use_constraints([], _, _, _, []) :- !.
+add_fusion_use_constraints([Indicators|MoreIndicators], Computed, Uncomputed,
+                           N, [TaskList|TaskLists]) :- !,
+    maplist(add_fusion_use_constraints_(Indicators, Computed, Uncomputed, N), TaskList),
     NewN is N + 1,
-    fusion_dependency_check(NewN, Future, LastComputeds, FirstUncomputeds).
-fusion_dependency_check(Region, LastComputeds, FirstUncomputeds) :-
-    fusion_dependency_check(0, Region, LastComputeds, FirstUncomputeds).
+    add_fusion_use_constraints(MoreIndicators, Computed, Uncomputed, NewN, TaskLists).
 
-fusable_strip(LastComputeds, FirstUncomputeds, Strip) :-
-    computable_order(Strip, LastComputeds, FirstUncomputeds),
-    fusion_dependency_check(Strip, LastComputeds, FirstUncomputeds).
+add_fusion_use_constraints(IndicatorList, Computed, Uncomputed, TaskLists) :- !,
+    add_fusion_use_constraints(IndicatorList, Computed, Uncomputed, 0, TaskLists).
 
-fusable(Strips) :-
-    to_strip_length_vars(Strips, LastComputeds),
-    to_strip_length_vars(Strips, FirstUncomputeds),
-    map_assoc(fusable_strip(LastComputeds, FirstUncomputeds), Strips).
+build_fusion_entailment_constraint(Type, Indicators, [Output], Constraint) :- !,
+    get_assoc(Output, Indicators, Var),
+    Constraint = (Var #= Type).
+build_fusion_entailment_constraint(Type, Indicators, [Output|[Next|Rest]], Constraint) :- !,
+    get_assoc(Output, Indicators, Var),
+    build_fusion_entailment_constraint(Type, Indicators, [Next|Rest], SubConstraint),
+    Constraint = ((Var #= Type) #/\ SubConstraint).
 
-region_with_id(_, [], _) :- fail.
-region_with_id(Id, [R|Tail], Region) :-
-    (R.id == Id, !, R = Region);
-    region_with_id(Id, Tail, Region).
+add_fusion_entailment_constraints(Indicators, Computed, Uncomputed, N, Reg-Tasks) :-
+    maplist(task_output, Tasks, Outputs),
+    get_assoc(Reg, Computed, ComputedVar),
+    get_assoc(Reg, Uncomputed, UncomputedVar),
 
-has_op_in_past(Region) :- has_op(Region.past).
-has_op_in_future(Region) :- has_op(Region.future).
+    build_fusion_entailment_constraint(1, Indicators, Outputs, ComputedConstr),
+    ((ComputedVar #>= N) #<==> ComputedConstr),
 
-regions_make_progress(Regions) :-
-    exists(has_op_in_past, Regions, PastReg),
-    exists(has_op_in_future, Regions, FutureReg),
-    PastReg.id \== FutureReg.id, !.
+    build_fusion_entailment_constraint(0, Indicators, Outputs, UncomputedConstr),
+    ((UncomputedVar #=< N) #<==> UncomputedConstr).
 
-task_output_flip(Region, Task) :- task_output(Task, Region).
+add_fusion_entailment_constraints([], _, _, _, []).
+add_fusion_entailment_constraints([Indicators|MoreIndicators], Computed, Uncomputed,
+                                  N, [TaskList|TaskLists]) :-
+    tasks_grouped_by_region(TaskList, RegionTasks),
+    maplist(add_fusion_entailment_constraints(Indicators, Computed, Uncomputed, N), RegionTasks),
+    NewN is N + 1,
+    add_fusion_entailment_constraints(MoreIndicators, Computed, Uncomputed, NewN, TaskLists).
 
-state_computed_in_past(Regions, any(States)) :- !,
-    exists_one(state_in_past(Regions), States).
-state_computed_in_past(Regions, State) :-
-    operand_region(State, StateReg),
-    region_with_id(StateReg, Regions, Region),
-    exists_one(task_output_flip(State), Region.past).
+add_fusion_entailment_constraints(IndicatorList, Computed, Uncomputed, TaskLists) :-
+    add_fusion_entailment_constraints(IndicatorList, Computed, Uncomputed, 0, TaskLists).
 
-no_floating_noops_future(Regions, comes_from(_, In)) :- !,
-    extract_operands(In, InOps),
-    \+ maplist(state_computed_in_past(Regions), InOps).
-no_floating_noops_future(_, _).
+find_present_regions(RegionSet, Term, Acc, NewSet) :-
+    base_state(Term) -> (state_region(Term, Region),
+                         ord_memberchk(Region, RegionSet) ->
+                             ord_add_element(Acc, Region, NewSet);
+                         NewSet = Acc);
+    is_list(Term) -> foldl(find_present_regions(RegionSet), Term, Acc, NewSet);
+    % any() is in this case
+    compound(Term) -> (compound_name_arguments(Term, _, Args),
+                       foldl(find_present_regions(RegionSet), Args, Acc, NewSet));
+    NewSet = Acc.
+find_present_regions(RegionSet, Term, NewRegionSet) :-
+    find_present_regions(RegionSet, Term, [], NewRegionSet).
 
-no_pointless_const_computation_past(PastInSymbolSet, const(Out)) :- !,
-    operand_region(Out, Reg),
-    ord_memberchk(Reg, PastInSymbolSet).
-no_pointless_const_computation_past(_, _).
+const_task_for_region(Region, const(hat(Region))).
 
-no_pointless_const_computation_future(PastInSymbolSet, const(Out)) :- !,
-    operand_region(Out, Reg),
-    \+ ord_memberchk(Reg, PastInSymbolSet).
-no_pointless_const_computation_future(_, _).
+add_const_tasks(AllConstRegions, TaskList, NewTaskList) :-
+    find_present_regions(AllConstRegions, TaskList, RegionsForConst),
+    format("~w adding ~w~n", [TaskList, RegionsForConst]),
+    maplist(const_task_for_region, RegionsForConst, NewTasks),
+    append(NewTasks, TaskList, NewTaskList).
 
-no_pointless_const_computation(Regions) :-
-    collect_field(Regions, past, Pasts),
-    collect_field(Regions, future, Futures),
-    partition_task_operands(Pasts, PastInputs, _),
-    operands_regions_set(PastInputs, OpSet),
-    maplist(no_pointless_const_computation_past(OpSet), Pasts),
-    maplist(no_pointless_const_computation_future(OpSet), Futures).
+add_const_tasks(TaskLists, NewTaskLists) :-
+    extract_base_states(TaskLists, AllStates),
+    states_regions_set(AllStates, AllRegions),
+    maplist(out_states_of, TaskLists, TaskOutputSets),
+    ord_union(TaskOutputSets, AllOutStates),
+    states_regions_set(AllOutStates, AllOutRegions),
+    ord_subtract(AllRegions, AllOutRegions, AllConstRegions),
+    (AllConstRegions \== []) ->
+        (format("INFO: treating the regions ~w as pure inputs~n", [AllConstRegions]),
+         maplist(add_const_tasks(AllConstRegions), TaskLists, NewTaskLists));
+    (NewTaskLists = TaskLists).
 
-no_floating_noops(Regions, Region) :-
-    maplist(no_floating_noops_future(Regions), Region.future).
-
-no_floating_noops(Regions) :-
-    maplist(no_floating_noops(Regions), Regions).
-
-might_have_rank_k_update(Regions) :-
-    exists_one(is_partial, Regions).
-
-before_flip(Y, X) :- before(X, Y).
-not_after_flip(Y, X) :- not_after(Y, X).
-
-before(any(Ops1), any(Ops2)) :-
-    !, exists_one(before, Ops1, Ops2).
-before(any(Ops1), Y) :-
-    !, exists_one(before_flip(Y), Ops1).
-before(X, any(Ops2)) :-
-    !, exists_one(before(X), Ops2).
-% Here we give the exceptions to the assumption of independence
-before(tilde(X), hat(Y)) :-  !, X \== Y.
-before(tilde(X), during(Y, _)) :- !, X \== Y.
-before(tilde(X), during(Y, _, _)) :- !, X \== Y.
-before(tilde(X), tilde(Y)) :- !, X \== Y.
-before(during(X, _), hat(Y)) :- !, X \== Y.
-before(during(X, _, _), hat(Y)) :- !, X \== Y.
-% These are before if they're on different regions or the first is before the second.
-before(during(X, M), during(Y, N)) :- !, (X \== Y; M < N), !.
-before(during(X, M, _), during(Y, N)) :- !, (X \== Y; M < N), !.
-before(during(X, M), during(Y, N, _)) :- !, (X \== Y; M < N), !.
-before(during(X, M, A), during(Y, N, B)) :- !, (X \==Y; M < N; (M =:= N, A \== B)), !.
-before(_, _).
-
-% The obvious case
-not_after(X, X) :- !.
-% Handle any()
-not_after(any(Ops1), any(Ops2)) :-
-    !, exists_one(not_after, Ops1, Ops2).
-not_after(any(Ops1), Y) :-
-    !, exists_one(not_after_flip(Y), Ops1).
-not_after(X, any(Ops2)) :-
-    !, exists_one(not_after(X), Ops2).
-% The special cases for during()
-not_after(during(X, M), during(X, N)) :- M =:= N, !.
-not_after(during(X, M, _), during(X, N)) :- M =:= N, !.
-not_after(during(X, M), during(X, N, _)) :- M =:= N, !.
-not_after(during(X, M, A), during(X, N, B)) :- M =:= N, A == B, !.
-not_after(X, Y) :- before(X, Y).
-
-dependencies_preserved(Invariant) :-
-    regions_to_operands(Invariant, PastIns, PastOuts, FutureIns, FutureOuts),
-    %% For independent iterations, replace next statement with
-    %% maplist2(before, PastOuts, FutureIns),
-    maplist2(not_after, PastOuts, FutureIns),
-    maplist2(before, PastIns, FutureOuts).
-
-valid_loop_invariant(Invariant) :-
-    %% Uncomment below to restrict to possible rank-k updates
-    %% might_have_rank_k_update(Invariant),
-    regions_make_progress(Invariant),
-    no_floating_noops(Invariant),
-    no_pointless_const_computation(Invariant),
-    dependencies_preserved(Invariant).
-
-%! fused_invariants(?Invariants:region_list_list) is nondet.
-%! fused_invariants(+Invariants:region_list_list) is semidet.
+%! fusion_constrained_system_for_tasks(+TaskLists:task_lists, -System:system) is semidet.
 %
-% When at least one region's `past` and `future` fields are unbound,
-% find loop invariants for each operation (represented by a list of
-% regions) in the input, such that the loops can be fused - that is,
-% if the loop invariants for each operation are used to generate an
-% algorithm, the loop bodies of the algorithms can be concatentated
-% without sacrificing the correctness of each invariant.
-%
-% This predicate will succeed once for each possible fusable loop
-% invariant.
-%
-% If the `past` and `future` fields of all the input regions are
-% bound, verify that the given input constitutes a series of fusable
-% loop invariants.
-%
-% @see make_pmes/2
-fused_invariants(Invariants) :-
-    transpose_invariants(Invariants, Strips),
-    fusable(Strips),
-    maplist(valid_loop_invariant, Invariants).
+% Generate the system of constraints for the loops described by the
+% list of list of tasks in `TaskLists` and places the corresponding
+% `system` dictionary into `System`. The format of this dictionary is
+% described in the module-level documentation. It is safe to add
+% constraints to the `indicators`, `computed` and `uncomputed` fields
+% of this dictionary before passing them to
+% fused_invariants_for_system/3.
+fusion_constrained_system_for_tasks(TaskLists, System) :-
+    add_const_tasks(TaskLists, FullTaskLists),
+    maplist(constrained_indicators_for_tasks, FullTaskLists, IndicatorList),
+    task_lists_to_fusion_vars(FullTaskLists, Computed, Uncomputed),
+    add_fusion_use_constraints(IndicatorList, Computed, Uncomputed, FullTaskLists),
+    add_fusion_entailment_constraints(IndicatorList, Computed, Uncomputed, FullTaskLists),
+    System = system{tasks:FullTaskLists, indicators:IndicatorList,
+                    computed:Computed, uncomputed:Uncomputed}.
 
-%! loop_invariant(?Invariant) is nondet.
-%! loop_invariant(+Invariant) is semidet.
+%! fused_invariants_for_system(+System:system, -Pasts:task_lists, -Futures:task_lists) is nondet.
 %
-% A converience wrapper around fused_invariants/1 that finds all
-% loop invariants for a single operation.
-loop_invariant(Invariant) :-
-    fused_invariants([Invariant]).
+% Given the system of constraints `System`, yield a list of loop
+% invariants/pasts (each element of `Pasts` is a list of tasks, one
+% per loop, in order), and the corresponding list of `Futures`. This
+% procedure proceeds by a constraint-propagating search enabled by the
+% `clpfd` library.
+fused_invariants_for_system(System, Pasts, Futures) :-
+    system{tasks:TaskLists, indicators:IndicatorList,
+           computed:_, uncomputed:_} = System,
+    maplist(assoc_to_values, IndicatorList, TaskIndicators),
+    flatten(TaskIndicators, AllVars),
+    labeling([ffc], AllVars),
+    maplist(read_indicators, IndicatorList, TaskLists, Pasts, Futures).
 
-%% Test and example code
-
-print_region(Region) :-
-    (Region.tasks == [], !);
-    format("~w past: ~w~n~w future: ~w~n", [Region.id, Region.past, Region.id, Region.future]).
-
-%! print_invariant(+Invariant:region_list) is det.
+%! fused_invariants(+TaskLists:task_lists, -Pasts:task_lists, -Futures:task_lists) is nondet.
 %
-% Print all non-empty regions in the given loop invariant. The `past`
-% and `future` lists in each `region` must be ground terms.
-%
-% Both the `past` (the loop invariant) and `future` (the remainder)
-% for each region is printed.
-print_invariant(Invariant) :-
-    maplist(print_region, Invariant).
+% Split the tasks in each PME (specified as a list of tasks) in
+% `TaskLists` into those that are part of each loop's invariant (the
+% list of invariants is stored in `Pasts`) and those that are in the
+% remainder (`Futures`). Succeeds once per valid collection of fusable
+% invariants.
+fused_invariants(TaskLists, Pasts, Futures) :-
+    fusion_constrained_system_for_tasks(TaskLists, System),
+    fused_invariants_for_system(System, Pasts, Futures).
 
-%! print_invariants(+Invariants:region_list_lists) is det.
+%! loop_invariant(+TaskList:task_list, -Past:task_list, -Future:task_list) is nondet.
 %
-% Prints each loop invariant in a list of loop invariants, separated by "then".
-% @see print_invariant/1.
-print_invariants([]).
-print_invariants([Invariant|[]]) :-
-    print_invariant(Invariant), !.
-print_invariants([Invariant|Invariants]) :-
-    print_invariant(Invariant),
-    format("then~n"),
-    print_invariants(Invariants).
+% Convenience wrapper around `fused_invariants([TaskList], [Past],
+% [Future])` for the case when invariants are only needed for one
+% loop. In this case, the fusion analysis in trivial and does not
+% affect the results.
+loop_invariant(TaskList, Past, Future) :-
+    fused_invariants([TaskList], [Past], [Future]).
 
-print_invariant_sep(Invariant) :-
-    print_invariant(Invariant),
-    format("~n").
+%! print_task(+Prefix:string, +Task:task) is det.
+%
+% Prints a representation of `Task` to standard output, preceeded by
+% `Prefix`.
+print_task(Prefix, op_eq(Out, In)) :- !,
+    format("~w~w :=_O ~w~n", [Prefix, Out, In]).
+print_task(Prefix, eq(Out, In)) :- !,
+    format("~w~w := ~w~n", [Prefix, Out, In]).
+print_task(Prefix, comes_from(Out, In)) :- !,
+    format("~w~w <- ~w~n", [Prefix, Out, In]).
+print_task(Prefix, const(Out)) :- !,
+    format("~w DEBUG const(~w)~n", [Prefix, Out]).
 
-%! print_invariants_sep(+Invariants:region_list_list) is det.
+%! print_task_list(+Prefix:string, +TaskList:task_list) is det.
 %
-% Convenience wrapper around print_invariants/1 that adds a blank
-% line after the invariants. This is provided to allow
-% maplist/2ing over a list of different loop invariants, such as
-% one that would be produced by findall/3.
+% Prints the tasks from `TaskList` to standard output, one per line,
+% where each task is prefixed by `Prefix`.
+print_task_list(Prefix, TaskList) :-
+    maplist(print_task(Prefix), TaskList).
+
+%! print_task_lists(+Prefix:string, +TaskLists:task_lists) is det.
 %
-% @see print_invariants/1
-print_invariants_sep(Invariants) :-
-    print_invariants(Invariants),
-    format("~n").
+% Prints the tasks from each `TaskList` to standard output, one per
+% line. where each task is prefixed by `Prefix`. The tasks are in each
+% list are separated by a line contained "then", to indicate the
+% sequencing between loops.
+print_task_lists(_Prefix, []) :- !.
+print_task_lists(Prefix, [Task|[]]) :- !,
+    print_task_list(Prefix, Task).
+print_task_lists(Prefix, [Task|Tasks]) :-
+    print_task_list(Prefix, Task),
+    write("then\n"),
+    print_task_lists(Prefix, Tasks).
+
+%! solutions_print_helper(PastsList:task_lists_list) is det.
+%
+% Takes a list of multiple fused invariants (lists of lists of tasks
+% yielded into `Pasts` by fused_invaniants/3) and prints them using
+% print_task_list/2, tagged as "Invariant: ". This is a helper method
+% for gen_invariants/1 and its relatives that is exposed to enable
+% variants of those methods.
+solutions_print_helper([]) :- !.
+solutions_print_helper([Pasts|[]]) :- !,
+    print_task_lists("Invariant: ", Pasts).
+solutions_print_helper([Pasts|Solutions]) :-
+    print_task_lists("Invariant: ", Pasts),
+    write("\n"),
+    solutions_print_helper(Solutions).
+
+singleton(X, [X]).
 
 %! test_task_list(+TaskList:task_list, -NInvariants:int) is semidet.
 %
-% Like gen_invariant/1, but it will report the number of
-% invariants found in `NInvariants`. If `NInvariants` fails to unify,
-% a helpful error message is reported.
+% Like gen_invariant/1, but it will report the number of invariants
+% found in `NInvariants`. If `NInvariants` fails to unify, an error
+% message is output.
 test_task_list(TaskList, NInvariants) :-
-    findall(Invariant,
-            (make_pme(TaskList, Invariant),
-             loop_invariant(Invariant)),
+    findall(Past,
+            (loop_invariant(TaskList, Past, _)),
             Results),
     length(Results, NumResults),
-    maplist(print_invariant_sep, Results),
+    maplist(singleton, Results, OtherResults),
+    solutions_print_helper(OtherResults),
     format("~d invariants~n", [NumResults]),
     ((NumResults #= NInvariants, !);
      (format("ERROR: expected ~d invariants~n", [NInvariants]), fail)).
 
 %! test_task_lists(+TaskLists:task_list_list, -NInvariants:int) is semidet.
 %
-% Like gen_invariants/1, but it will report the number of invariant series found in `NInvariants`.
-% If `NInvariants` fails to unify, a helpful error message is reported.
+% Like gen_invariants/1, but it will report the number of invariant
+% collections found in `NInvariants`. If `NInvariants` fails to unify,
+% a helpful error message is output.
 test_task_lists(TaskLists, NInvariants) :-
-    findall(Invariants,
-            (make_pmes(TaskLists, Invariants),
-             fused_invariants(Invariants)),
+    findall(Pasts,
+            (fused_invariants(TaskLists, Pasts, _)),
             Results),
     length(Results, NumResults),
-    maplist(print_invariants_sep, Results),
-    format("~d invariants~n", [NumResults]),
+    sort(Results, DedupedResults),
+    length(DedupedResults, NumDedup),
+    solutions_print_helper(Results),
+    format("~d invariants~n~d Deduped~n", [NumResults, NumDedup]),
     ((NumResults #= NInvariants, !);
-     (format("ERROR: expected ~d invariants~n", [NInvariants]), fail)).
-
-%! test_task_lists_dedup(+TaskLists:task_list_list, -NInvariants:int) is semidet.
-%
-% Like gen_invariants_dedup/1, but it will report the number of
-% unique invariant series found in `NInvariants`. If `NInvariants`
-% fails to unify, a helpful error message is reported.
-test_task_lists_dedup(TaskLists, NInvariants) :-
-    findall(Invariants,
-            (make_pmes(TaskLists, Invariants),
-             fused_invariants(Invariants)),
-            Results),
-    length(Results, NumResults),
-    sort(Results, Invariants),
-    length(Invariants, NumInvariants),
-    maplist(print_invariants_sep, Invariants),
-    format("~d results~n~d invariants~n", [NumResults, NumInvariants]),
-    ((NumInvariants #= NInvariants, !);
      (format("ERROR: expected ~d invariants~n", [NInvariants]), fail)).
 
 %! gen_invariant(+TaskList:task_list) is semidet.
@@ -804,13 +727,5 @@ gen_invariant(TaskList) :- test_task_list(TaskList, _).
 %
 % Find and print all fusable loop invariants for the given list of
 % operations, each of which are specified as a list of tasks.
-% @see make_pme/2
-% @see fused_invariants/1
+% @see fused_invariants/3
 gen_invariants(TaskLists) :- test_task_lists(TaskLists, _).
-
-%! gen_invariants_dedup(+TaskLists:task_list_list) is semidet.
-%
-% Like gen_invariants/1, but the results are deduplicated before
-% printing. This should not be necessary, but it is provided in the
-% event that excess nondeterminism affects your results.
-gen_invariants_dedup(TaskLists) :- test_task_lists_dedup(TaskLists, _).
