@@ -160,7 +160,7 @@ The other option is to call the \texttt{pme\_fusion} library directly.
 This is very useful for cases where constructing the set of tasks by hand is tedious --- an example of this is available in \texttt{examples/tze\_meng\_sym\_multiply.pl}, which shows the fusion of $\widetilde{C} ((AM) + (AM)^T)$ with $\widetilde{C} = \hat{C} - MM^T$
 The typical way call the library is to use the \texttt{gen\_invariants(TaskLists)} function, which performs the same operations as the script of the same name.
 
-For a lower-level interface, which allows more control over filtering and printing, see the library documentation, especially \texttt{make\_pmes} and \texttt{fused\_invariants}.
+For a lower-level interface, which allows more control over filtering and printing, see the library documentation, especially \texttt{fusion\_constrained\_system\_for\_tasks} and \texttt{fused\_invariants\_for\_system}.
 
 Once the software has found loop invariants, you can derive the algorithm by \textbf{TODO describe this?}.
 

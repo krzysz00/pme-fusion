@@ -18,16 +18,22 @@ The main library is in [pme_fusion.pl](pme_fusion.pl).
 
 One (recommended) way to use the library is the [gen_invariants.pl]
 script, which takes a list of PMEs, each expressed as a list of tasks
-(see the [library documentation](doc/pme_fusion.pl) for details). The
+(see the [library documentation](doc/pme_fusion.html) for details). The
 tasks are read from the filename given to the script as an argument or
 from standard input (if no arguments are passed). In either case, the
 input must be terminated by a period (`.`) to satisfy the Prolog parser.
+
+An example of how to operate the library is located in
+[algo-description/usage-example.pdf](algo-description/usage-example.pdf),
+while a high-level theoretical description can be found in [the paper
+fragment](algo-description/algo-description.pdf).
 
 Another method is load the library into a Prolog program using
 `use_module` and to then call the functions exported from it, such as
 `gen_invariants/1`.
 
 `gen_docs.pl` will recreate the documentation.
+
 
 ## Dependencies
 This software is written to target
