@@ -20,6 +20,8 @@
 
 \newcommand*{\opF}{\mathcal{F}}
 \newcommand*{\opf}{f}
+\newcommand*{\tasks}{\mathcal{T}}
+\newcommand*{\outputs}{\mathcal{O}}
 
 \title{The document where I explain my algorithm}
 \author{Krzysztof A. Drewniak}
@@ -126,7 +128,6 @@ For example, finding an fused algorithm for the inversion of a symmetric matrix 
 Therefore, we have developed a tool that will automatically perform this search.
 
 \section{Algorithm}
-% General note: more motivation for everything
 \subsection{Task-based representation of PMEs}
 Before we give our algorithm, we need to discuss the structure of the inputs to our search procedure.
 Our inputs are neither the mathematical expressions for the operations we wish to fuse or their PMEs as typically written.
@@ -169,13 +170,134 @@ This task, which has the form $S \leftarrow f(\ldots)$, is equivalent to $S \col
 For example, $\widetilde{U}_{TL} \leftarrow \widetilde{L}_{TL}$ means that, if $\widetilde{L}_{TL}$ is computed in the loop invariant, $\widetilde{U}_{TL}$ must also be computed.
 This task is useful for encoding equations with multiple outputs, and for providing names for expressions such as $C_{TR, (0, a)} \wedge C_{TR, (0, b)}$ from above.
 
-One final type of task, which only appears, is the constant task, $const(\hat{A}_R)$.
+One final type of task, which need not appear in user input, is the constant task, $const(\hat{A}_R)$.
 This task has no input dependencies, and is used internally in order to ensure that the direction of iteration through pure inputs that are not shared between loops.
 This task is automatically created by the software in the cases where it is necessary, such as the fusion of $\widetilde{y} \coloneqq A\hat{x}$ and $\widetilde{w} \coloneqq B\hat{x}$.
 The additional constraint on this task is that it can be in the loop invariant if and only if $\hat{A}_R$ appears elsewhere in the invariant.
 This condition, combined with the constraints on loop fusion, prevents the system from generating ``fusable'' loops that iterate through pure inputs, such at $\hat{x}$ in different directions.
 
-\subsection{Finding invariants for one PME}
+To create these tasks, we search our input for any region $A_R$ such that there is no task in any loop that writes to $A_R$.
+If this is the case, we know that $A_R$ is a pure input region.
+Once we have identified such a region, we add the $const(\hat{A}_R)$ task in any loop where $A_R$ is referenced.
+This, combined with the constraints on fusability within a region, ensures that we do not generate sequences of loops that read a pure input in different directions, since having the first loop invariant read only $\hat{x}_T$ (leaving $\hat{x}_B$ in the ramainder) and the second read only $\hat{x}_B$, for example, would result in the second loop reading from a region that was not ``computed'' in the first one, per the constraint above.
+
+\subsection{Constraints within a PME}
+Our procedure for finding loop invariants proceeds by generating the constraints that govern when a given task may or must be in the loop invariant or the remainder of its loop, and then identifying all solutions to this system of constraints.
+
+For uniformity, we define $A_{R, \bot}$ as another notation for $\hat{A}_R$ and $A_{R, \top}$ as notation for $\widetilde{A}_R$
+
+Within a PME, we associate each task output $A_{R, \sigma}$ with an indicator $[A_R, \sigma]$, which has domain $\{0, 1\}$, that reflects whether the task that computes $A_{R, \sigma}$ is in the loop invariant ($[R, \sigma] = 1$) or in the remainder.
+In the fusion problem, the indicators take the form $[A_R, \sigma, n]$, where $n$ is the 0-based index of the loop from which a given task arises.
+However, since this section discusses the constraints that arise between tasks in any one given loop, we will omit the $n$s.
+These indicator variables allow us to define the constraints on our solution space in the language of constraint propagation over a finite domain.
+
+The first constraints we impose relate to ensuring that the placement of tasks respects these dependencies.
+In order to impose these constraints, we need to define what it means for one memory state to precede another in memory.
+This notion is important because it allows us to determine that no tasks in the loop invariant will have overwritten any inputs needed to a task in the remainder.
+In addition, phrasing constraints in the form of predecessor states allows the user to, for example, use $\widetilde{A}_R$ in a task definition when the only tasks for that region compute $A_{R, (0, a)}$ and $A_{R, (0, b)}$, because both of those states are predecessors of $\widetilde{A}_R$.
+
+We say that $A_{R, \sigma}$ precedes $A_{R, \sigma'}$, or $pr(A_{R, \sigma}, A_{R, \sigma'})$ if:
+\begin{itemize}
+\item $\sigma = \bot$ and $\sigma' \neq \bot$; or
+\item $\sigma = m$ (or $\sigma = (m, x)$), $\sigma' = n$ (or $\sigma' = (n, y)$), and $m < n$; or
+\item $\sigma \neq \top$ and $\sigma' = \top$
+\end{itemize}
+States from different regions do not precede each other.
+
+We also define the set $\outputs$ to be the set of output states in a PME, that is, the set of $A_{R, \sigma}$s that have indicator variables which correspond to them.
+
+If we have a task $A_{R, \sigma} \coloneqq f(A_{S_{1, 1}, \sigma_{1, 1}}, A_{S_{2, 1}, \sigma{2, 1}} \vee A_{S_{2, 2}, \sigma_{2, 2}} \ldots \vee A_{S_{2, k_2}, \sigma_{2, i_2}} \ldots, A_{S_{k, 1}, \sigma_{k, 1}})$, we impose the constraints
+\begin{equation*}
+  [A_R, \sigma] = 1 \Rightarrow \bigwedge_{i = 1}^k \bigvee_{j = 1}^{k_i} \bigwedge_{\substack{A_{S', \sigma'} \in \outputs,\\
+                                                    pd(A_{S' \sigma'}, A_{S_{i, j}, \sigma_{i, j}})}} [A_{S'}, \sigma'] = 1
+\end{equation*}
+and
+\begin{equation*}
+  [A_R, \sigma] = 0 \Rightarrow \bigwedge_{i = 1}^k \bigvee_{j = 1}^{k_i} \bigwedge_{\substack{A_{S', \sigma'} \in \outputs,\\
+                                                    pr(A_{S_{i, j}, \sigma_{i, j}}, A_{S' \sigma'})}} [A_{S'}, \sigma'] = 0
+\end{equation*}
+where $pd(A_{R, \sigma}, A_{R' \sigma'})$ means that $A_{R, \sigma} = A_{R' \sigma'}$ or $pr(A_{R, \sigma}, A_{R', \sigma'})$.
+
+That is, for a task to be in the loop invariant, all of its inputs and all their predecessors must also be in the loop invariant (and if an input is an or, than only one branch of the or needs its input and predecessors).
+Similarly, for a task to be in the remainder, all the successors of its inputs must also be in the remainder.
+
+The justification for these constraints is that a task cannot be in the invariant unless all of its inputs have been computed (which requires their predecessors to be computed), and that, if an input is an or, only one of its branches needs to be available.
+Similarly, a task cannot be in the remainder if any of its inputs have been overwritten by a task in the loop invariant (that is, a task that produces a successor of the input).
+
+If the task producing $A_{R, \sigma}$ is a comes from task, that is, a noop, the constraint on its presence in the loop invariant becomes an equivalence instead of an implication to ensure that we do not generate spurious results in cases where a noop could be computed but isn't.
+
+A simple example of the constraints generated by these rules comes from the Cholesky factorization, which has the task-based PME
+\begin{equation*}
+  \FlaTwoByTwo{\widetilde{A}_{TL} \coloneqq_O CHOL(\hat{A}_{TL})}{*}
+  {\widetilde{A}_{BL} \coloneqq \hat{A}_{BL}\widetilde{A}_{TL}^{-T}}
+  {\begin{array}{c}
+     A_{BR, 0} \coloneqq \hat{A}_{BR} - \widetilde{A}_{BL}\widetilde{A}_{BL}^T;\\
+     \widetilde{A}_{BR} \coloneqq_O CHOL(A_{BR, 0})
+   \end{array}}
+\end{equation*}
+This PME generates the non-trivial constraints
+\begin{align*}
+  [A_{BL}, \top] = 1 &\Rightarrow [A_{TL}, \top] = 1\\
+  [A_{BR}, 0] = 1 &\Rightarrow [A_{BL}, \top] = 1\\
+  [A_{BR}, 0] = 0 &\Rightarrow [A_{BR}, \top] = 0\\
+  [A_{BR}, \top] = 1 &\Rightarrow [A_{BR}, 0] = 1
+\end{align*}
+which are not sufficient to define valid loop invariants, as they will, for example, admit the solution that sets all indicators to 1, or a loop invariant where the matrix is completely factored at the beginning of each iteration.
+
+To solve this issue, we add the constraint that ensures that the loop invariant will make progress.
+If there are $k$ outputs $A_{R_1, \sigma_1}, \ldots A_{R_k, \sigma_k}$ that are the result of operation tasks, then we require that
+\begin{equation*}
+  0 < \sum_{i = 1}^k [A_{R_i} \sigma_i] < n.
+\end{equation*}
+That is, not every operation task can be in the loop invariant and not all of them can be in the remainder.
+This ensures that there will be a region that can contain the initial input (that is, the one which has the algorithm's operation in the future) and one to contain the final output (which has the operation in the past).
+
+A final type of constraint arises from const tasks, which are used to keep loops that iterate through pure inputs moving in the same direction.
+If $const(\hat{A}_R)$ is a task, and $A_{R_1, \sigma_1}, \ldots A_{R_k, \sigma_k}$ are the outputs of tasks that have $A_R$ appear anywhere in their inputs, then we impose the constraint
+\begin{equation*}
+  [R, \bot] = 1 \Leftrightarrow \vee_{i = 1}^k [A_{R_k} \sigma_k] = 1.
+\end{equation*}
+In other words, a const task is computed if and only if one of the tasks that reads that input region is computed.
+This constraint is mainly necessary for cases where the input appears in an or, where, if a different branch of the or is satisfied, $[A_R, \sigma]$ is completely unconstrained (generating spurious results), since its task has no input dependencies.
+
+\subsection{Constraints for fusion}
+To ensure loop fusion, we need to ensure that tasks do not read data which previous loops have not fully computed for them, and that tasks to not overwrite data that future iterations of earlier loops will need to read.
+This condition translates to a series of additional constraints on our search space.
+
+To describe these constraints, we will, for each region $A_R$, define the integer variables $C_{A_R}$ and $U_{A_R}$, which represent the index of the last loop in which $A_R$ is fully computed and the first region in which it is uncomputed, respectively.
+We will not directly search through values for these variables, but we will use them to constrain our solution space.
+
+The domain of each $C_{A_R}$ is $-1 \leq C_{A_R} < N$, where $N$ is the number of loops being fused.
+The $-1$ is there to provide a value for $C_{A_R}$ when no loop fully computes $A_R$.
+Similarly, $0 \leq U_{A_R} \leq N$, to allow for the case where all loops write to $A_R$ to some degree (which causes $A_R = N$).
+
+The first set of constraints we establish is the fusion use constraints.
+For each task in the $n$th loop, whose inputs are $A^n_{R_{1, 1}, \sigma_{1, 1}}, A^n_{R_{2, 1}, \sigma_{2, 1}} \vee \ldots \vee A^n_{R_{2, k_2}, \sigma{2, k_2}}, \ldots, A^n_{R_{k, 1}, \sigma_{k, 1}}$ and output is $A_{R, \sigma}^n$, we impose the fusion use constraints
+\begin{equation*}
+  [R, \sigma, n] = 1 \Rightarrow \bigwedge_{i = 1}^k \bigvee_{j = 1}^{k_i} C_{R_{i, j}} \geq n - 1
+\end{equation*}
+and
+\begin{equation*}
+  [R, \sigma, n] = 0 \Rightarrow \bigwedge_{i = 1}^k \bigvee_{j = 1}^{k_i} U_{R_{i, j}} \leq n + 1
+\end{equation*}
+
+That is, if a task that reads from region $A_R$ in one of its inputs, $A_R$ must be fully computed through the loop immediately before the one containing that task.
+Similarly, if a task is in the remainder needs data stored in $A_R$, then none of the loop invariants that will be fused into the loop body after it can overwrite that data, which needs to be preserved.
+
+The other set of constraints required to preserve fusion are the fusion entailment constraints, which define what $C_{A_R}$ and $U_{A_R}$'s values imply about the state of the computation.
+These are, for each region $A_R$ and loop $n$ (where $\outputs^n$ is the set of task outputs for the $n$th loop):
+\begin{equation*}
+  C_{A_R} \geq n \Leftrightarrow \bigwedge_{A_{R, \sigma} \in \outputs^n} [R, \sigma, n] = 1
+\end{equation*}
+and
+\begin{equation*}
+  U_{A_R} \leq n \Leftrightarrow \bigwedge_{A_{R, \sigma} \in \outputs^n} [R, \sigma, n] = 0.
+\end{equation*}
+
+With these two sets of constraints, we now have enumerated all the requirements that must be satisfied to produce a fusable collection of loop invariants for a given set of $N$ PMEs.
+
+\textbf{TODO example that doesn't need a whole bunch of space to list the constraints?}
+\subsection{OLD Finding invariants for one PME}
 We can now present our method for finding all the loop invariants for one PME now that we have defined how to split a PME into tasks.
 This problem amounts to finding splits of each region's set of tasks $T_R$, into disjoint sets $P_R$ (the ``past'' or loop invariant) and $F_R$ (the ``future'' or remainder) such that $T_R = P_R \cup F_R$ such that the tasks in the past/future satisfy the conditions needed to create a valid loop invariant.
 These conditions need to be rephrased in the language of tasks and intermediate memory states.
@@ -217,7 +339,7 @@ With our definition, the already-computed branch of the or in the invariant will
 One useful consequence of these definitions is that, when the final group of tasks in a region $R$ consists of a group of $A_{R, (n, x)}$ tasks, other regions do not need to list out all of those tasks, but can instead refer to $\widetilde{A}_R$ (which is never explicitly computed within $R$) to ensure that $A_R$ is fully computed at the time that read should take place.
 
 With the dependency check defined, we now have defined an algorithm for generating all valid loop invariants from a task-based PME.
-\subsection{Finding fusable loop invariants}
+\subsection{OLD Finding fusable loop invariants}
 The obvious approach to finding fusable loop invariants would be to consider all possible loop invariants for each operation and then check if each of these collections of invariants can be fused.
 This approach is extremely inefficient because it considers many collections of invariants which can quickly be rejected from consideration by using a different search procedure.
 
@@ -255,7 +377,7 @@ These constraints are sufficient to ensure that none of the loops compute with i
 However, even if we find choices for each strip that satisfy the fusion conditions, there is no guarantee that we have produced fusable loop invariants.
 For example, if every strip leaves $S_R[n - 1]$ uncomputed, then loop $n - 1$ cannot make progress because it has no operation tasks in its invariant.
 Therefore, the second phase of our algorithm is to check all task splits that pass the fusion check to ensure that they have resulted in a valid loop invariant for each loop, a process we discussed in the section above.
-\subsection{Multiple output objects}
+\subsection{OLD Multiple output objects}
 There are some extensions that we must make to our algorithm if not every loop writes to the same output object.
 For example, if are fusing the operations $\widetilde{L} = \hat{L}^{-1}$ and $\widetilde{y} = L\hat{x}$, we notice each operation updates different regions, and that there are potential issues with fusion because $y = Lx$ reads from $L$.
 The general concepts of the algorithm remains unchanged, since we can consider $y_R$ and $L_R$ different regions in the same way that $L_R$ and $L_S$ are.
@@ -287,7 +409,7 @@ The second issue that arises with multiple output matrices is tasks that write t
 The usual example of this arises during the computation of the $LU$ factorization, where, mathematically, we want $\{\widetilde{L}, \widetilde{U}\} = LU(\hat{A})$.
 However, our system as currently specified only allows for tasks to create one output.
 These issues must be resolved by declaring comes from tasks, such as $\widetilde{U}_{TL} \leftarrow \widetilde{L}_{TL}$ to introduce the additional regions thorough noops.
-\subsection{An example}
+\subsection{OLD An example}
 To demonstrate the operation of this theory, we can consider the inversion of a symmetric matrix, given by the following three task based PMEs. (We will tag operation tasks with $\coloneqq_O$).
 The operations needed to invert a symmetric matrix $A$ are the Cholesky factorization, followed by a triangular inverse and the multiplication $AA^{T}$.
 
