@@ -10,26 +10,109 @@
 <body>
 
 
+<h1 class="wiki">pme-fusion: Automatic generation of fusable loop invariants for algorithms expressed in FLAME notation</h1>
+
+<p>
+This library/program allow you to generate fusable loop invariants for
+a series of operations expressible in FLAME notation if you specify
+the partitioned matrix expressions (PMEs) (which can be used for
+objects other than matrices).</p>
+
+<h2 class="wiki">Installation</h2>
+
+<p>
+You do not need to take any action to install this program. If you do
+choose to install it, move <a class="file" href="../gen_invariants.pl">gen_invariants.pl</a>
+and <a class="file" href="pme_fusion.html">pme_fusion.pl</a> into the same directory.</p>
+
+<h2 class="wiki">Usage</h2>
+
+<p>
+The syntax of the input format is located in
+<code class="nofile">doc/pme_fusion.pl</code>.</p>
+
+<p>
+The main library is in <a class="file" href="pme_fusion.html">pme_fusion.pl</a>.</p>
+
+<p>
+One (recommended) way to use the library is the [<a class="file" href="../gen_invariants.pl">gen_invariants.pl</a>]
+script, which takes a list of PMEs, each expressed as a list of tasks
+(see the <code class="nofile">doc/pme_fusion.pl</code> for details). The
+tasks are read from the filename given to the script as an argument or
+from standard input (if no arguments are passed). In either case, the
+input must be terminated by a period (`.`) to satisfy the Prolog parser.</p>
+
+<p>
+Another method is load the library into a Prolog program using
+<code>use_module</code> and to then call the functions exported from it, such as
+<code>gen_invariants/1</code>.</p>
+
+<p>
+<code>gen_docs.pl</code> will recreate the documentation.</p>
+
+<h2 class="wiki">Dependencies</h2>
+
+<p>
+This software is written to target
+<a href="http://www.swi-prolog.org/">SWI Prolog</a> version 7.6.4. It will likely
+not function in other Prolog implementations or significantly older
+versions of SWI Prolog.</p>
+
+<h2 class="wiki">Examples</h2>
+
+<p>
+Examples of both methods can be found in the [`examples/`](examples/)
+directory. The example input to the <code>gen_invariants.pl</code> script is
+stored in a `.txt` file.</p>
+
+<p>
+<code>examples/examples.pl</code> functions as a series of basic test cases.</p>
+
+<p>
+<code>examples/common_task_lists.pl</code> contains functions that generate task
+lists for several common operations.</p>
+
+<h2 class="wiki">License</h2>
+
+<p>
+Copyright ⓒ 2018 Krzysztof Drewniak</p>
+
+<p>
+This file is part of pme-fusion.</p>
+
+<p>
+pme-fusion is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.</p>
+
+<p>
+pme-fusion is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.</p>
+
+<p>
+You should have received a copy of the GNU General Public License
+along with pme-fusion. If not, see <a href="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</a>.</p>
+
 <h2 class="wiki plfiles">Prolog files</h2>
 
 <table class="summary">
 <tr><th colspan="3" class="file"><span style="float:left"><a href="gen_docs.html">gen_docs.pl</a></span><span style="float:right"></span></th></tr>
 <tr><th colspan="3" class="file"><span style="float:left"><a href="pme_fusion.html">pme_fusion.pl</a></span>&nbsp; -- Find fusable loop invariants from partitioned (matrix) expressions<span style="float:right"></span></th></tr>
-<tr class="public"><td><a href="pme_fusion.html#fused_invariants/1">fused_invariants/1</a></td><td class="summary">When at least one region's <code>past</code> and <code>future</code> fields are unbound, find loop invariants for each operation (represented by a list of regions) in the input, such that the loops can be fused - that is, if the loop invariants for each operation are used to generate an algorithm, the loop bodies of the algorithms can be concatentated without sacrificing the correctness of each invariant.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
+<tr class="public"><td><a href="pme_fusion.html#fused_invariants/3">fused_invariants/3</a></td><td class="summary">Split the tasks in each PME (specified as a list of tasks) in <var>TaskLists</var> into those that are part of each loop's invariant (the list of invariants is stored in <var>Pasts</var>) and those that are in the remainder (<var>Futures</var>).</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
+<tr class="public"><td><a href="pme_fusion.html#fused_invariants_for_system/3">fused_invariants_for_system/3</a></td><td class="summary">Given the system of constraints <var>System</var>, yield a list of loop invariants/pasts (each element of <var>Pasts</var> is a list of tasks, one per loop, in order), and the corresponding list of <var>Futures</var>.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
+<tr class="public"><td><a href="pme_fusion.html#fusion_constrained_system_for_tasks/2">fusion_constrained_system_for_tasks/2</a></td><td class="summary">Generate the system of constraints for the loops described by the list of list of tasks in <var>TaskLists</var> and places the corresponding <code>system</code> dictionary into <var>System</var>.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
 <tr class="public"><td><a href="pme_fusion.html#gen_invariant/1">gen_invariant/1</a></td><td class="summary">Finds and prints all loop invariants for a given list of tasks.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
 <tr class="public"><td><a href="pme_fusion.html#gen_invariants/1">gen_invariants/1</a></td><td class="summary">Find and print all fusable loop invariants for the given list of operations, each of which are specified as a list of tasks.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
-<tr class="public"><td><a href="pme_fusion.html#gen_invariants_dedup/1">gen_invariants_dedup/1</a></td><td class="summary">Like <a href="pme_fusion.html#gen_invariants/1">gen_invariants/1</a>, but the results are deduplicated before printing.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
-<tr class="public"><td><a href="pme_fusion.html#loop_invariant/1">loop_invariant/1</a></td><td class="summary">A converience wrapper around <a href="pme_fusion.html#fused_invariants/1">fused_invariants/1</a> that finds all loop invariants for a single operation.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
-<tr class="public"><td><a href="pme_fusion.html#make_pme/2">make_pme/2</a></td><td class="summary">Convenience wrapper around <a href="pme_fusion.html#make_pmes/2">make_pmes/2</a> for the case when there is one operation.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
-<tr class="public"><td><a href="pme_fusion.html#make_pmes/2">make_pmes/2</a></td><td class="summary">Transforms the list of lists of tasks (one task-list per operation being fused) into a list of list of regions, that is, a list of partitioned matrix expressions (PMEs).</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
-<tr class="public"><td><a href="pme_fusion.html#make_region/5">make_region/5</a></td><td class="summary">The lowest-level constructor for a <code>region</code>.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
-<tr class="public"><td><a href="pme_fusion.html#print_invariant/1">print_invariant/1</a></td><td class="summary">Print all non-empty regions in the given loop invariant.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
-<tr class="public"><td><a href="pme_fusion.html#print_invariants/1">print_invariants/1</a></td><td class="summary">Prints each loop invariant in a list of loop invariants, separated by "then".</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
-<tr class="public"><td><a href="pme_fusion.html#print_invariants_sep/1">print_invariants_sep/1</a></td><td class="summary">Convenience wrapper around <a href="pme_fusion.html#print_invariants/1">print_invariants/1</a> that adds a blank line after the invariants.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
-<tr class="public"><td><a href="pme_fusion.html#region_with_tasks/3">region_with_tasks/3</a></td><td class="summary">Convenience wrapper that creates the region <var>Reg</var> with the given <var>Id</var> and <var>Tasks</var>.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
+<tr class="public"><td><a href="pme_fusion.html#loop_invariant/3">loop_invariant/3</a></td><td class="summary">Convenience wrapper around <code>fused_invariants([TaskList], [Past], [Future])</code> for the case when invariants are only needed for one loop.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
+<tr class="public"><td><a href="pme_fusion.html#print_task/2">print_task/2</a></td><td class="summary">Prints a representation of <var>Task</var> to standard output, preceeded by <var>Prefix</var>.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
+<tr class="public"><td><a href="pme_fusion.html#print_task_list/2">print_task_list/2</a></td><td class="summary">Prints the tasks from <var>TaskList</var> to standard output, one per line, where each task is prefixed by <var>Prefix</var>.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
+<tr class="public"><td><a href="pme_fusion.html#print_task_lists/2">print_task_lists/2</a></td><td class="summary">Prints the tasks from each <var>TaskList</var> to standard output, one per line.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
+<tr class="public"><td><a href="pme_fusion.html#solutions_print_helper/1">solutions_print_helper/1</a></td><td class="summary">Takes a list of multiple fused invariants (lists of lists of tasks yielded into <var>Pasts</var> by <a class="extmanual" href="http://www.swi-prolog.org/pldoc/man?predicate=fused_invaniants/3">fused_invaniants/3</a>) and prints them using <a href="pme_fusion.html#print_task_list/2">print_task_list/2</a>, tagged as "Invariant: ".</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
 <tr class="public"><td><a href="pme_fusion.html#test_task_list/2">test_task_list/2</a></td><td class="summary">Like <a href="pme_fusion.html#gen_invariant/1">gen_invariant/1</a>, but it will report the number of invariants found in <var>NInvariants</var>.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
-<tr class="public"><td><a href="pme_fusion.html#test_task_lists/2">test_task_lists/2</a></td><td class="summary">Like <a href="pme_fusion.html#gen_invariants/1">gen_invariants/1</a>, but it will report the number of invariant series found in <var>NInvariants</var>.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
-<tr class="public"><td><a href="pme_fusion.html#test_task_lists_dedup/2">test_task_lists_dedup/2</a></td><td class="summary">Like <a href="pme_fusion.html#gen_invariants_dedup/1">gen_invariants_dedup/1</a>, but it will report the number of unique invariant series found in <var>NInvariants</var>.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
+<tr class="public"><td><a href="pme_fusion.html#test_task_lists/2">test_task_lists/2</a></td><td class="summary">Like <a href="pme_fusion.html#gen_invariants/1">gen_invariants/1</a>, but it will report the number of invariant collections found in <var>NInvariants</var>.</td><td align="right"><span style="white-space: nowrap"></span></td></tr>
 </table>
 
 </body>

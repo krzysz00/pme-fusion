@@ -37,26 +37,29 @@ if it were the only operation being performed.</p>
 <h1 class="wiki">Usage</h1>
 
 <p>
-The main interface to the API is <a href="pme_fusion.html#gen_invariants/1">gen_invariants/1</a> (and its
-relatives <a href="pme_fusion.html#gen_invariant/1">gen_invariant/1</a> and <a href="pme_fusion.html#gen_invariants_dedup/1">gen_invariants_dedup/1</a>). These
-functions take a list of lists of tasks (with the exception of the
-convenience function <a href="pme_fusion.html#gen_invariant/1">gen_invariant/1</a>, which strips the outer
-list). They find and print all fusable loop invariants for the
-series of operations specified by the task lists.</p>
+The main interface to the API is <a href="pme_fusion.html#gen_invariants/1">gen_invariants/1</a> (and its relative
+<a href="pme_fusion.html#gen_invariant/1">gen_invariant/1</a>). These functions take a list of lists of tasks or a
+list of tasks, respectively. They find and print all (fusable) loop
+invariants for the series of operations specified by the task lists.</p>
 
 <p>
-An alternate entry point is provided by <a href="pme_fusion.html#make_pmes/2">make_pmes/2</a> and
-<a href="pme_fusion.html#fused_invariants/1">fused_invariants/1</a>. <a href="pme_fusion.html#make_pmes/2">make_pmes/2</a> transforms a list of task
-lists (like the input to <a href="pme_fusion.html#gen_invariants/1">gen_invariants/1</a>) into a lists of lists
-of <code>region</code> objects which have not yet been made into concrete loop
-invariants. <a href="pme_fusion.html#fused_invariants/1">fused_invariants/1</a> takes such a list of list of
-regions and binds every region's <code>past</code> and <code>future</code> fields to
-values that create a series of fusable loop invariants. It will
-succeed multiple times, once per set of loop invariants. (and so, it
-can also be used to check an invariant for validity). A fully
-determined (with no free variables) list of regions can be printed
-with <a href="pme_fusion.html#print_invariant/1">print_invariant/1</a> (and a list of those can be printed with
-<a href="pme_fusion.html#print_invariants/1">print_invariants/1</a>).</p>
+An alternate interfare is provided by
+<a href="pme_fusion.html#fusion_constrained_system_for_tasks/2">fusion_constrained_system_for_tasks/2</a> and
+<a href="pme_fusion.html#fused_invariants_for_system/3">fused_invariants_for_system/3</a>.
+<code>fusion_constrained_system_for_tasks(Tasks, System)</code> returns a
+<code>system</code> dictionary (described in more detail below) that, among other
+things, includes the system of indicator variables and constraints
+that indicate what partitions of a task list into a <code>past</code> and a
+<code>future</code> are valid. The <code>system</code> value can be modified to enforce
+additional constraints before the search, which is performed by
+<a href="pme_fusion.html#fused_invariants_for_system/3">fused_invariants_for_system/3</a>. That function takes a <code>system</code>
+dictionary and returns once for each valid split of the tasks that
+created it into <var>Pasts</var> (a list of list of tasks in each loop's
+invariant) and <var>Futures</var> (a list of lists tasks in each loop's
+remainder). These lists can be passed to printing functions like
+<a href="pme_fusion.html#print_task_lists/2">print_task_lists/2</a> or <a class="extmanual" href="http://www.swi-prolog.org/pldoc/man?predicate=print_task_lists_sep/2">print_task_lists_sep/2</a> (which adds a newline
+after the lists, which is useful when mapping over the set of possible
+results) in order to present them.</p>
 
 <h1 class="wiki">Types and syntax</h1>
 
@@ -104,12 +107,13 @@ However, the ability to use arbitrary terms to describe the inputs allows for mo
 
 <p>
 A <code>task</code> is one of the following:</p>
-
-<dl class="termlist">
-<dt class="term"><b class="pred">eq</b><var class="arglist">(BaseState, InputTerm)</var></dt><dd>This is a task that writes out <var>BaseState</var> by performing the
+<ul>
+<li><code>eq(BaseState, InputTerm)</code>
+This is a task that writes out <var>BaseState</var> by performing the
 computations in <var>InputTerm</var>. The <code>state</code>s in <var>InputTerm</var> and
-<var>BaseState</var> are used to track dependencies between tasks.</dd>
-<dt class="term"><b class="pred">op_eq</b><var class="arglist">(BaseState, InputTerm)</var></dt><dd>This is the same as <code>eq(BaseState, InputTerm)</code>, except that it
+<var>BaseState</var> are used to track dependencies between tasks.</li>
+<li><code>op_eq(BaseState, InputTerm)</code>
+This is the same as <code>eq(BaseState, InputTerm)</code>, except that it
 signifies that the task represents the operation that loop
 invariants are being sought for.
 
@@ -120,37 +124,53 @@ need to write <code>op_eq(tilde(x_t), solve(l_tl, b_t))</code> but
 the second operation is not a lower-triangular solve. Using
 <code>op_eq</code> is important, as it is used to ensure that the generated
 loops are capable of making progress towards computing an
-operation.</p></dd>
-<dt class="term"><b class="pred">comes_from</b><var class="arglist">(OutBaseState, InBaseState)</var></dt><dd>This is a special task used when the task that generates
-<var>InBaseState</var> also creates <var>OutBaseState</var> in a different region. The
-purpose of this task is to connect the computation of the two
-regions so that one cannot remain while the other has been. This
-is useful in cases such as the LU factorization, where the tasks
-that generate <code>l_tl</code> also compute <code>u_tl</code>.</dd>
-</dl>
+operation.</p></li>
+<li><code>comes_from(OutBaseState, InputTerm)</code> This is a special task used
+when the expression InputTerm also necessarily entails the
+computation of OutBaseState. purpose of this task is to connect
+the computation of the two states so that one cannot remain
+uncomputed while the other has been. This is useful in cases such
+as the LU factorization, where the tasks that generate <code>l_tl</code> also
+compute <code>u_tl</code>.</li>
+<li><code>const(BaseState)</code> This is a task that is generally automatically
+created, which represents a region that is a pure input - that is,
+one that is not ever updated by the algorithm. The purpose of this
+tasks is to allow maintaining a consistent direction of iteration
+when ensuring that requires analyzing such inputs. These tasks
+follow the typical fusion analysis, and have the additional
+restriction that they cannot be in the loop invariant unless one
+of the tasks that depends on them is.</li>
+</ul>
 
 <p>
-On input, each of the operations that is to be fused is represented
-as a list of tasks. Before the algorithms begins, these tasks are
-organized into <code>region</code>s, which group together the tasks that create
-output states in a given region, that is tasks with the same ID in
-their output state.
-The fields of a <code>region</code> areas</p>
-
-<dl class="termlist">
-<dt class="term"><span class="functor">id</span></dt><dd>The ID associated with that region.</dd>
-<dt class="term"><span class="functor">tasks</span></dt><dd>The list (though order is irrelevant) of all tasks associated
-with the region. In a fully-formed region, <code>tasks</code> is the union
-of the disjoint sets <code>past</code> and <code>future</code></dd>
-<dt class="term"><span class="functor">past</span></dt><dd>The list of all tasks that are part of the loop invariant.</dd>
-<dt class="term"><span class="functor">future</span></dt><dd>The list of all tasks that are part of the remainder, that is,
-that are not in the loop invariant</dd>
-</dl>
+The <code>system</code> dictionary returned by
+<a href="pme_fusion.html#fusion_constrained_system_for_tasks/2">fusion_constrained_system_for_tasks/2</a> has the following four fields:</p>
+<ul>
+<li>tasks This contains the list of lists of tasks that generated the
+system, with const tasks included</li>
+<li>indicators A list of <code>assoc</code> structures, one per loop. The keys to
+these lists are the outputs of each task in that loop, while the
+values are variables with <code>clpfd</code> constrains applied and domain
+`0..1`. Having an indicator set to <code>1</code> indicates that the task
+with the associated output is in the loop invariant, <code>0</code> indicates
+it is in the remainder.</li>
+<li>computed An <code>assoc</code> where the keys are regions (not states) that
+appear in the fusion problem with values whose domains are `-1..N
+<ul>
+<li>1` (where <var>N</var> is the number of loops being fused). The values
+represent the index of the last loop in a fusion problem where the
+associated region is fully computed. These variables are not
+searched, but do participate in constraints.</li>
+</ul>
+</li>
+<li>uncomputed Like <code>computed</code>, except that each variable represents
+the index of the first loop where the associated region is
+uncomputed, and the variables have domain `0..N`.</li>
+</ul>
 
 <p>
-Regions can be created by <a href="pme_fusion.html#make_region/5">make_region/5</a> or
-<a href="pme_fusion.html#region_with_tasks/3">region_with_tasks/3</a>, which leaves the <code>past</code> and <code>future</code> fields
-bound to variables.</p>
+It is safe to apply additional constraints to any of these variables before calling
+<a href="pme_fusion.html#fused_invariants_for_system/3">fused_invariants_for_system/3</a>.</p>
 
 <dl class="tags">
 <dt class="keyword-author">author</dt><dd class="keyword-author">- Krzysztof Drewniak</dd>
@@ -158,100 +178,51 @@ bound to variables.</p>
 </dl>
 
 <dl>
-<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="make_region/5"><b class="pred">make_region</b><var class="arglist">(++Id:atom, +Tasks:task_list, ?Past:task_list, ?Future:task_list, -Reg:region)</var></a> is <b class="det">semidet</b></dt><dd class="defbody">The lowest-level constructor for a <code>region</code>.
-
-<p>
-Fails if <var>Id</var> is not an atom or if <var>Tasks</var> are not all tasks. Does
-<strong>not</strong> enforce that <var>Tasks</var> is a union of <code>past</code> and <code>future</code>, or
-that all of the tasks target the same <var>Id</var>.</p></dd>
-<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="region_with_tasks/3"><b class="pred">region_with_tasks</b><var class="arglist">(++Id:atom, +Tasks:task_list, -Reg:region)</var></a> is <b class="det">semidet</b></dt><dd class="defbody">Convenience wrapper that creates the region <var>Reg</var> with the given
-<var>Id</var> and <var>Tasks</var>.
-
-<dl class="tags">
-<dt class="keyword-see">See also</dt><dd class="keyword-see">- <a href="pme_fusion.html#make_region/5">make_region/5</a></dd>
-</dl>
-
-</dd>
-<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="make_pme/2"><b class="pred">make_pme</b><var class="arglist">(+TaskList:task_list, -Regions:region_list)</var></a> is <b class="det">semidet</b></dt><dd class="defbody">Convenience wrapper around <a href="pme_fusion.html#make_pmes/2">make_pmes/2</a> for the case when there
-is one operation.</dd>
-<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="make_pmes/2"><b class="pred">make_pmes</b><var class="arglist">(+TaskLists:task_list_list, -PMEs:region_list_list)</var></a> is <b class="det">semidet</b></dt><dd class="defbody">Transforms the list of lists of tasks (one task-list per operation
-being fused) into a list of list of regions, that is, a list of
-partitioned matrix expressions (<var>PMEs</var>). This transformation will
-create all necessary region objects, including the empty ones
-required to ensure loop fusion.
-
-<p>
-Will fail if anything in <var>TaskLists</var> is not a valid task, and will
-warn for:</p>
-<ul>
-<li>Regions that are tagged with a state in an input but never used
-as an output</li>
-<li>Regions that appear without state specifiers</li>
-</ul>
-
-<p>
-The output of this function is suitable as input for
-<a href="pme_fusion.html#fused_invariants/1">fused_invariants/1</a>'s search mode.</p></dd>
-<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="fused_invariants/1"><b class="pred">fused_invariants</b><var class="arglist">(?Invariants:region_list_list)</var></a> is <b class="det">nondet</b></dt>
-<dt class="pubdef"><b class="pred">fused_invariants</b><var class="arglist">(+Invariants:region_list_list)</var> is <b class="det">semidet</b></dt><dd class="defbody">When at least one region's <code>past</code> and <code>future</code> fields are unbound,
-find loop invariants for each operation (represented by a list of
-regions) in the input, such that the loops can be fused - that is,
-if the loop invariants for each operation are used to generate an
-algorithm, the loop bodies of the algorithms can be concatentated
-without sacrificing the correctness of each invariant.
-
-<p>
-This predicate will succeed once for each possible fusable loop
-invariant.</p>
-
-<p>
-If the <code>past</code> and <code>future</code> fields of all the input regions are
-bound, verify that the given input constitutes a series of fusable
-loop invariants.</p>
-
-<dl class="tags">
-<dt class="keyword-see">See also</dt><dd class="keyword-see">- <a href="pme_fusion.html#make_pmes/2">make_pmes/2</a></dd>
-</dl>
-
-</dd>
-<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="loop_invariant/1"><b class="pred">loop_invariant</b><var class="arglist">(?Invariant)</var></a> is <b class="det">nondet</b></dt>
-<dt class="pubdef"><b class="pred">loop_invariant</b><var class="arglist">(+Invariant)</var> is <b class="det">semidet</b></dt><dd class="defbody">A converience wrapper around <a href="pme_fusion.html#fused_invariants/1">fused_invariants/1</a> that finds all
-loop invariants for a single operation.</dd>
-<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="print_invariant/1"><b class="pred">print_invariant</b><var class="arglist">(+Invariant:region_list)</var></a> is <b class="det">det</b></dt><dd class="defbody">Print all non-empty regions in the given loop invariant. The <code>past</code>
-and <code>future</code> lists in each <code>region</code> must be ground terms.
-
-<p>
-Both the <code>past</code> (the loop invariant) and <code>future</code> (the remainder)
-for each region is printed.</p></dd>
-<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="print_invariants/1"><b class="pred">print_invariants</b><var class="arglist">(+Invariants:region_list_lists)</var></a> is <b class="det">det</b></dt><dd class="defbody">Prints each loop invariant in a list of loop invariants, separated by "then".
-@see <a href="pme_fusion.html#print_invariant/1">print_invariant/1</a>.</dd>
-<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="print_invariants_sep/1"><b class="pred">print_invariants_sep</b><var class="arglist">(+Invariants:region_list_list)</var></a> is <b class="det">det</b></dt><dd class="defbody">Convenience wrapper around <a href="pme_fusion.html#print_invariants/1">print_invariants/1</a> that adds a blank
-line after the invariants. This is provided to allow
-maplist/2ing over a list of different loop invariants, such as
-one that would be produced by <a class="builtin" href="http://www.swi-prolog.org/pldoc/man?predicate=findall/3">findall/3</a>.
-
-<dl class="tags">
-<dt class="keyword-see">See also</dt><dd class="keyword-see">- <a href="pme_fusion.html#print_invariants/1">print_invariants/1</a></dd>
-</dl>
-
-</dd>
-<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="test_task_list/2"><b class="pred">test_task_list</b><var class="arglist">(+TaskList:task_list, -NInvariants:int)</var></a> is <b class="det">semidet</b></dt><dd class="defbody">Like <a href="pme_fusion.html#gen_invariant/1">gen_invariant/1</a>, but it will report the number of
-invariants found in <var>NInvariants</var>. If <var>NInvariants</var> fails to unify,
-a helpful error message is reported.</dd>
-<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="test_task_lists/2"><b class="pred">test_task_lists</b><var class="arglist">(+TaskLists:task_list_list, -NInvariants:int)</var></a> is <b class="det">semidet</b></dt><dd class="defbody">Like <a href="pme_fusion.html#gen_invariants/1">gen_invariants/1</a>, but it will report the number of invariant series found in <var>NInvariants</var>.
-If <var>NInvariants</var> fails to unify, a helpful error message is reported.</dd>
-<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="test_task_lists_dedup/2"><b class="pred">test_task_lists_dedup</b><var class="arglist">(+TaskLists:task_list_list, -NInvariants:int)</var></a> is <b class="det">semidet</b></dt><dd class="defbody">Like <a href="pme_fusion.html#gen_invariants_dedup/1">gen_invariants_dedup/1</a>, but it will report the number of
-unique invariant series found in <var>NInvariants</var>. If <var>NInvariants</var>
-fails to unify, a helpful error message is reported.</dd>
+<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="fusion_constrained_system_for_tasks/2"><b class="pred">fusion_constrained_system_for_tasks</b><var class="arglist">(+TaskLists:task_lists, -System:system)</var></a> is <b class="det">semidet</b></dt><dd class="defbody">Generate the system of constraints for the loops described by the
+list of list of tasks in <var>TaskLists</var> and places the corresponding
+<code>system</code> dictionary into <var>System</var>. The format of this dictionary is
+described in the module-level documentation. It is safe to add
+constraints to the <code>indicators</code>, <code>computed</code> and <code>uncomputed</code> fields
+of this dictionary before passing them to
+<a href="pme_fusion.html#fused_invariants_for_system/3">fused_invariants_for_system/3</a>.</dd>
+<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="fused_invariants_for_system/3"><b class="pred">fused_invariants_for_system</b><var class="arglist">(+System:system, -Pasts:task_lists, -Futures:task_lists)</var></a> is <b class="det">nondet</b></dt><dd class="defbody">Given the system of constraints <var>System</var>, yield a list of loop
+invariants/pasts (each element of <var>Pasts</var> is a list of tasks, one
+per loop, in order), and the corresponding list of <var>Futures</var>. This
+procedure proceeds by a constraint-propagating search enabled by the
+<code>clpfd</code> library.</dd>
+<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="fused_invariants/3"><b class="pred">fused_invariants</b><var class="arglist">(+TaskLists:task_lists, -Pasts:task_lists, -Futures:task_lists)</var></a> is <b class="det">nondet</b></dt><dd class="defbody">Split the tasks in each PME (specified as a list of tasks) in
+<var>TaskLists</var> into those that are part of each loop's invariant (the
+list of invariants is stored in <var>Pasts</var>) and those that are in the
+remainder (<var>Futures</var>). Succeeds once per valid collection of fusable
+invariants.</dd>
+<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="loop_invariant/3"><b class="pred">loop_invariant</b><var class="arglist">(+TaskList:task_list, -Past:task_list, -Future:task_list)</var></a> is <b class="det">nondet</b></dt><dd class="defbody">Convenience wrapper around <code>fused_invariants([TaskList], [Past],
+[Future])</code> for the case when invariants are only needed for one
+loop. In this case, the fusion analysis in trivial and does not
+affect the results.</dd>
+<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="print_task/2"><b class="pred">print_task</b><var class="arglist">(+Prefix:string, +Task:task)</var></a> is <b class="det">det</b></dt><dd class="defbody">Prints a representation of <var>Task</var> to standard output, preceeded by
+<var>Prefix</var>.</dd>
+<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="print_task_list/2"><b class="pred">print_task_list</b><var class="arglist">(+Prefix:string, +TaskList:task_list)</var></a> is <b class="det">det</b></dt><dd class="defbody">Prints the tasks from <var>TaskList</var> to standard output, one per line,
+where each task is prefixed by <var>Prefix</var>.</dd>
+<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="print_task_lists/2"><b class="pred">print_task_lists</b><var class="arglist">(+Prefix:string, +TaskLists:task_lists)</var></a> is <b class="det">det</b></dt><dd class="defbody">Prints the tasks from each <var>TaskList</var> to standard output, one per
+line. where each task is prefixed by <var>Prefix</var>. The tasks are in each
+list are separated by a line contained "then", to indicate the
+sequencing between loops.</dd>
+<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="solutions_print_helper/1"><b class="pred">solutions_print_helper</b><var class="arglist">(PastsList:task_lists_list)</var></a> is <b class="det">det</b></dt><dd class="defbody">Takes a list of multiple fused invariants (lists of lists of tasks
+yielded into <var>Pasts</var> by <a class="extmanual" href="http://www.swi-prolog.org/pldoc/man?predicate=fused_invaniants/3">fused_invaniants/3</a>) and prints them using
+<a href="pme_fusion.html#print_task_list/2">print_task_list/2</a>, tagged as "Invariant: ". This is a helper method
+for <a href="pme_fusion.html#gen_invariants/1">gen_invariants/1</a> and its relatives that is exposed to enable
+variants of those methods.</dd>
+<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="test_task_list/2"><b class="pred">test_task_list</b><var class="arglist">(+TaskList:task_list, -NInvariants:int)</var></a> is <b class="det">semidet</b></dt><dd class="defbody">Like <a href="pme_fusion.html#gen_invariant/1">gen_invariant/1</a>, but it will report the number of invariants
+found in <var>NInvariants</var>. If <var>NInvariants</var> fails to unify, an error
+message is output.</dd>
+<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="test_task_lists/2"><b class="pred">test_task_lists</b><var class="arglist">(+TaskLists:task_list_list, -NInvariants:int)</var></a> is <b class="det">semidet</b></dt><dd class="defbody">Like <a href="pme_fusion.html#gen_invariants/1">gen_invariants/1</a>, but it will report the number of invariant
+collections found in <var>NInvariants</var>. If <var>NInvariants</var> fails to unify,
+a helpful error message is output.</dd>
 <dt class="pubdef"><span style="float:right">&nbsp;</span><a name="gen_invariant/1"><b class="pred">gen_invariant</b><var class="arglist">(+TaskList:task_list)</var></a> is <b class="det">semidet</b></dt><dd class="defbody">Finds and prints all loop invariants for a given list of tasks.
 @see <a href="pme_fusion.html#gen_invariants/1">gen_invariants/1</a></dd>
 <dt class="pubdef"><span style="float:right">&nbsp;</span><a name="gen_invariants/1"><b class="pred">gen_invariants</b><var class="arglist">(+TaskLists:task_list_lists)</var></a> is <b class="det">semidet</b></dt><dd class="defbody">Find and print all fusable loop invariants for the given list of
 operations, each of which are specified as a list of tasks.
-@see <a href="pme_fusion.html#make_pme/2">make_pme/2</a>
-@see <a href="pme_fusion.html#fused_invariants/1">fused_invariants/1</a></dd>
-<dt class="pubdef"><span style="float:right">&nbsp;</span><a name="gen_invariants_dedup/1"><b class="pred">gen_invariants_dedup</b><var class="arglist">(+TaskLists:task_list_list)</var></a> is <b class="det">semidet</b></dt><dd class="defbody">Like <a href="pme_fusion.html#gen_invariants/1">gen_invariants/1</a>, but the results are deduplicated before
-printing. This should not be necessary, but it is provided in the
-event that excess nondeterminism affects your results.</dd>
+@see <a href="pme_fusion.html#fused_invariants/3">fused_invariants/3</a></dd>
 </dl>
 
 </body>
