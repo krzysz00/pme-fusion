@@ -405,8 +405,7 @@ build_base_const_constraint(Indicators, Region, Task, Constraint) :-
     task_split(Task, Inputs, Output),
     states_regions_set(Inputs, Regions),
     ord_memberchk(Region, Regions),
-    get_assoc(Output, Indicators, OutVar),
-    format("Task ~w has a const constraint for ~w~n", [Task, Region]), !,
+    get_assoc(Output, Indicators, OutVar), !,
     Constraint = (OutVar #= 1);
     % Failure case
     Constraint = na.
@@ -417,8 +416,7 @@ build_const_constraint(Indicators, Region, [Task|Tasks], Constraint) :-
     build_const_constraint(Indicators, Region, Tasks, SubConstraint),
     (SubConstraint \== na ->
          (NewConstraint \== na ->
-              (write("Chaining\n"),
-               Constraint = (NewConstraint #\/ SubConstraint));
+              (Constraint = (NewConstraint #\/ SubConstraint));
           Constraint = SubConstraint);
     Constraint = NewConstraint).
 
@@ -564,7 +562,6 @@ const_task_for_region(Region, const(hat(Region))).
 
 add_const_tasks(AllConstRegions, TaskList, NewTaskList) :-
     find_present_regions(AllConstRegions, TaskList, RegionsForConst),
-    format("~w adding ~w~n", [TaskList, RegionsForConst]),
     maplist(const_task_for_region, RegionsForConst, NewTasks),
     append(NewTasks, TaskList, NewTaskList).
 
@@ -643,8 +640,8 @@ print_task(Prefix, eq(Out, In)) :- !,
     format("~w~w := ~w~n", [Prefix, Out, In]).
 print_task(Prefix, comes_from(Out, In)) :- !,
     format("~w~w <- ~w~n", [Prefix, Out, In]).
-print_task(Prefix, const(Out)) :- !,
-    format("~w DEBUG const(~w)~n", [Prefix, Out]).
+print_task(_Prefix, const(_Out)).% :- !,
+%    format("~w DEBUG const(~w)~n", [Prefix, Out]).
 
 %! print_task_list(+Prefix:string, +TaskList:task_list) is det.
 %
