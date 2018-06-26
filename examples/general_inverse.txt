@@ -12,7 +12,7 @@
   comes_from(tilde(u_br), tilde(l_br))],
  % L <- L^{-1}
  [% TL
-  op_eq(tilde(l_tl), inverse(hat(InTl))),
+  op_eq(tilde(l_tl), inverse(hat(l_tl))),
   % BL
   eq(during(l_bl, 0, a),
      mul(any([during(l_bl, 0, b), hat(l_bl)]), tilde(l_tl))),
@@ -22,7 +22,7 @@
   op_eq(tilde(l_br), inverse(hat(l_br)))],
  % U <- U^{-1}
  [% TL
-  op_eq(tilde(u_tl), inverse(hat(InTl))),
+  op_eq(tilde(u_tl), inverse(hat(u_tl))),
   % TR
   eq(during(u_tr, 0, a),
      mul(any([during(u_tr, 0, b), hat(u_tr)]), tilde(u_tl))),

@@ -346,16 +346,18 @@ build_any_dep_constraint(Type, Indicators, StateSet, [Input|[Next|Inputs]], Cons
     build_base_dep_constraint(Type, Indicators, StateSet, Input, NewConstraint),
     Constraint = (NewConstraint #\/ SubConstraint).
 
-add_dep_constraint(_Type, _Indicators, _OutTaskVar, _StateSet, any([])) :-
+build_dep_constraint(_Type, _Indicators, _StateSet, any([]), _) :-
     format("ERROR: Empty any input~n"), fail.
-add_dep_constraint(Type, Indicators, OutTaskVar, StateSet, any([State])) :-
-    add_dep_constraint(Type, Indicators, OutTaskVar, StateSet, State).
-add_dep_constraint(Type, Indicators, OutTaskVar, StateSet, any([State|[Next|Rest]])) :-
-    build_any_dep_constraint(Type, Indicators, StateSet, [State|[Next|Rest]], Constraint),
-    (OutTaskVar #= Type) #==> Constraint.
+build_dep_constraint(Type, Indicators, StateSet, any([State]), Constraint) :-
+    build_dep_constraint(Type, Indicators, StateSet, State, Constraint).
+build_dep_constraint(Type, Indicators, StateSet, any([State|[Next|Rest]]), Constraint) :-
+    build_any_dep_constraint(Type, Indicators, StateSet, [State|[Next|Rest]], Constraint).
 
-add_dep_constraint(Type, Indicators, OutTaskVar, StateSet, InState) :- base_state(InState),
-    build_base_dep_constraint(Type, Indicators, StateSet, InState, Constraint),
+build_dep_constraint(Type, Indicators, StateSet, InState, Constraint) :- base_state(InState),
+    build_base_dep_constraint(Type, Indicators, StateSet, InState, Constraint).
+
+add_dep_constraint(Type, Indicators, OutTaskVar, StateSet, InState) :-
+    build_dep_constraint(Type, Indicators, StateSet, InState, Constraint),
     ((Constraint \== 1) -> ((OutTaskVar #= Type) #==> Constraint); true).
 
 add_past_dep_constraints(Indicators, StateSet, Task) :-
@@ -384,21 +386,16 @@ add_loop_progress_constraints(Indicators, Tasks) :-
     sum(Vars, #\=, 0),
     sum(Vars, #\=, NOps).
 
-build_comes_from_constraint_lhs(_Indicators, [], 1) :- !.
-build_comes_from_constraint_lhs(Indicators, [Input], Constraint) :- !,
-    get_assoc(Input, Indicators, Var),
-    Constraint = (Var #= 1).
-build_comes_from_constraint_lhs(Indicators, [Input|[Next|Rest]], Constraint) :- !,
-    get_assoc(Input, Indicators, Var),
-    build_comes_from_constraint_lhs(Indicators, [Next|Rest], SubConstr),
-    Constraint = ((Var #= 1) #/\ SubConstr).
+and_constraints(1, Acc, Acc) :- !.
+and_constraints(Constraint, Acc, Out) :-
+    Out = (Constraint #/\ Acc).
 
 add_comes_from_constraint(Indicators, StateSet, comes_from(Out, Expr)) :- !,
     get_assoc(Out, Indicators, OutVar),
     extract_states(Expr, InputSet),
-    ord_intersection(StateSet, InputSet, RelevantInputs),
-    build_comes_from_constraint_lhs(Indicators, RelevantInputs, Constraint),
-    Constraint #==> (OutVar #= 1).
+    maplist(build_dep_constraint(1, Indicators, StateSet), InputSet, Constraints),
+    foldl(and_constraints, Constraints, 1, Constraint),
+    (Constraint \== 1 -> Constraint #==> (OutVar #= 1); true).
 add_comes_from_constraint(_, _, _).
 
 build_base_const_constraint(Indicators, Region, Task, Constraint) :-
@@ -587,6 +584,7 @@ add_const_tasks(TaskLists, NewTaskLists) :-
 % of this dictionary before passing them to
 % fused_invariants_for_system/3.
 fusion_constrained_system_for_tasks(TaskLists, System) :-
+    (nonground(TaskLists, Var) -> (format("ERROR: Free variable ~w in task lists~n", [Var]), fail); true),
     add_const_tasks(TaskLists, FullTaskLists),
     maplist(constrained_indicators_for_tasks, FullTaskLists, IndicatorList),
     task_lists_to_fusion_vars(FullTaskLists, Computed, Uncomputed),
@@ -707,10 +705,8 @@ test_task_lists(TaskLists, NInvariants) :-
             (fused_invariants(TaskLists, Pasts, _)),
             Results),
     length(Results, NumResults),
-    sort(Results, DedupedResults),
-    length(DedupedResults, NumDedup),
     solutions_print_helper(Results),
-    format("~d invariants~n~d Deduped~n", [NumResults, NumDedup]),
+    format("~d invariants~n", [NumResults]),
     ((NumResults #= NInvariants, !);
      (format("ERROR: expected ~d invariants~n", [NInvariants]), fail)).
 
