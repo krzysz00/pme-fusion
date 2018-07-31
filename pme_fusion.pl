@@ -574,6 +574,14 @@ add_const_tasks(TaskLists, NewTaskLists) :-
          maplist(add_const_tasks(AllConstRegions), TaskLists, NewTaskLists));
     (NewTaskLists = TaskLists).
 
+warn_malformed_any(Term) :-
+    Term = any(Arg), is_list(Arg) -> true;
+    is_list(Term) -> maplist(warn_malformed_any, Term);
+    compound(Term) -> (compound_name_arguments(Term, Name, Args),
+                       (Name == any -> format("WARNING: ~w is a malformed any() term. (any() terms must have one argument, which is a list)~n", [Term]); true),
+                       maplist(warn_malformed_any, Args));
+    true.
+
 %! fusion_constrained_system_for_tasks(+TaskLists:task_lists, -System:system) is semidet.
 %
 % Generate the system of constraints for the loops described by the
@@ -585,6 +593,7 @@ add_const_tasks(TaskLists, NewTaskLists) :-
 % fused_invariants_for_system/3.
 fusion_constrained_system_for_tasks(TaskLists, System) :-
     (nonground(TaskLists, Var) -> (format("ERROR: Free variable ~w in task lists~n", [Var]), fail); true),
+    warn_malformed_any(TaskLists),
     add_const_tasks(TaskLists, FullTaskLists),
     maplist(constrained_indicators_for_tasks, FullTaskLists, IndicatorList),
     task_lists_to_fusion_vars(FullTaskLists, Computed, Uncomputed),
